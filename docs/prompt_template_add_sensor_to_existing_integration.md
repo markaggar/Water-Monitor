@@ -7,9 +7,9 @@ Copy/paste this prompt to instruct an AI to implement a new sensor for an existi
 You are updating an existing Home Assistant integration.
 
 Context
-- Integration name: {INTEGRATION_NAME}
-- Domain: {DOMAIN}
-- Repository path prefix: custom_components/{DOMAIN}/
+- Integration name: {Water Monitor}
+- Domain: {water_monitor}
+- Repository path prefix: custom_components/water_monitor}/
 - New entity to add: {NEW_SENSOR_NAME} ({NEW_SENSOR_KIND}: SensorEntity/BinarySensorEntity/etc.)
 - Purpose of the new entity: {BRIEF_DESCRIPTION_OF_FEATURE}
 - Upstream dependencies: {DEPENDENCY_ENTITIES_OR_NONE}
@@ -126,8 +126,8 @@ Deliverables
 - A brief CHANGELOG or PR body summarizing the change and confirming no breaking changes.
 
 Variables to use
-- {INTEGRATION_NAME} = "<your integration name>"
-- {DOMAIN} = "<your domain>"
+- {INTEGRATION_NAME} = "Water Monitor"
+- {DOMAIN} = "water_monitor"
 - {NEW_SENSOR_NAME} = "<human friendly name>"
 - {NEW_SENSOR_KIND} = "sensor|binary_sensor|..."
 - {NEW_SENSOR_CLASS_NAME} = "<ClassName>"

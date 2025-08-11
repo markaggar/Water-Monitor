@@ -1,0 +1,88 @@
+{
+  "title": "Water Monitor",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Water Monitor",
+        "description": "Configure your sensors and session tracking rules.",
+        "data": {
+          "sensor_prefix": "Sensor name prefix",
+          "flow_sensor": "Flow sensor",
+          "volume_sensor": "Volume sensor",
+          "hot_water_sensor": "Hot water binary sensor (optional)",
+          "min_session_volume": "Minimum session volume",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "session_gap_tolerance": "Gap tolerance (seconds)",
+          "session_continuity_window": "Continuity window (seconds)",
+          "low_flow_enable": "Enable low-flow leak detection"
+        }
+      },
+      "low_flow": {
+        "title": "Low-flow leak detection",
+        "description": "Configure when a sustained low flow should be considered a leak.",
+        "data": {
+          "low_flow_max_flow": "Max low-flow rate",
+          "low_flow_seed_low_flow_duration_s": "Seed low-flow duration (seconds)",
+          "low_flow_min_duration_s": "Minimum duration to trigger (seconds)",
+          "low_flow_clear_idle_s": "Clear after idle (seconds at zero flow)",
+          "low_flow_counting_mode": "Counting mode",
+          "low_flow_smoothing_window_s": "Smoothing window (seconds)",
+          "low_flow_cooldown_s": "Cooldown after clear (seconds)",
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow ≤ max low-flow"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Water Monitor options",
+        "description": "Update your sensors, session rules, and leak detection settings.",
+        "data": {
+          "sensor_prefix": "Sensor name prefix",
+          "flow_sensor": "Flow sensor",
+          "volume_sensor": "Volume sensor",
+          "hot_water_sensor": "Hot water binary sensor (optional)",
+          "min_session_volume": "Minimum session volume",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "session_gap_tolerance": "Gap tolerance (seconds)",
+          "session_continuity_window": "Continuity window (seconds)",
+          "low_flow_enable": "Enable low-flow leak detection"
+        }
+      },
+      "low_flow": {
+        "title": "Low-flow leak detection options",
+        "description": "Adjust how the low-flow leak sensor behaves.",
+        "data": {
+          "low_flow_max_flow": "Max low-flow rate",
+          "low_flow_seed_low_flow_duration_s": "Seed low-flow duration (seconds)",
+          "low_flow_min_duration_s": "Minimum duration to trigger (seconds)",
+          "low_flow_clear_idle_s": "Clear after idle (seconds at zero flow)",
+          "low_flow_counting_mode": "Counting mode",
+          "low_flow_smoothing_window_s": "Smoothing window (seconds)",
+          "low_flow_cooldown_s": "Cooldown after clear (seconds)",
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow ≤ max low-flow"
+        }
+      }
+    }
+  },
+  "selector": {
+    "select": {
+      "low_flow_counting_mode": {
+        "options": {
+          "nonzero_wallclock": "Any non-zero flow (wall clock)",
+          "in_range_only": "Only time within low-flow range"
+        }
+      }
+    }
+  }
+}

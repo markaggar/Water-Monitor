@@ -31,7 +31,7 @@
           "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
         },
         "data_description": {
-          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow ≤ max low-flow"
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow"
         }
       }
     },
@@ -70,17 +70,7 @@
           "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
         },
         "data_description": {
-          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow ≤ max low-flow"
-        }
-      }
-    }
-  },
-  "selector": {
-    "select": {
-      "low_flow_counting_mode": {
-        "options": {
-          "nonzero_wallclock": "Any non-zero flow (wall clock)",
-          "in_range_only": "Only time within low-flow range"
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow"
         }
       }
     }

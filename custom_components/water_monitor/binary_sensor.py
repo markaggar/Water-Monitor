@@ -86,6 +86,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._elapsed_seed = 0
         self._elapsed_leak = 0
         self._last_update: Optional[datetime] = None
+        # Clear logic helpers
         self._zero_since: Optional[datetime] = None
         self._high_since: Optional[datetime] = None
         self._cooldown_until: Optional[datetime] = None
@@ -101,11 +102,14 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        # Same device as sensors: name=prefix, model/manufacturer fixed
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self._entry.title or "Water Monitor",
-            manufacturer="Water Monitor",
-            model="Low-flow Leak Detector",
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
         )
 
     @property
@@ -193,11 +197,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
 
     async def _evaluate(self, now: datetime) -> None:
         """Advance timers and state machine."""
-        if self._cooldown_until and now < self._cooldown_until:
-            suppressed_reason = "cooldown"
-        else:
-            suppressed_reason = None
-
+        suppressed_reason = "cooldown" if (self._cooldown_until and now < self._cooldown_until) else None
         smoothed = self._ingest_flow(now)
 
         # Delta time
@@ -242,11 +242,9 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                 if smoothed > 0.0:
                     self._stage = "seeding"
                     self._elapsed_seed = 0
-                # else remain idle
 
             elif self._stage == "seeding":
                 if smoothed <= 0.0:
-                    # reset if flow stops
                     self._stage = "idle"
                     self._elapsed_seed = 0
                 elif smoothed <= self._max_flow:
@@ -254,13 +252,10 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                     if self._elapsed_seed >= self._seed_s:
                         self._stage = "counting"
                         self._elapsed_leak = 0
-                else:
-                    # above low-flow threshold, hold stage, do not accumulate
-                    pass
+                # else: above threshold, hold stage
 
             elif self._stage == "counting":
                 if smoothed <= 0.0 and self._zero_since and zero_elapsed >= self._clear_idle_s:
-                    # flow stopped long enough -> reset
                     self._stage = "idle"
                     self._elapsed_seed = 0
                     self._elapsed_leak = 0
@@ -280,7 +275,6 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
 
             elif self._stage == "triggered":
                 if smoothed <= 0.0 and self._zero_since and zero_elapsed >= self._clear_idle_s:
-                    # clear on true stop
                     self._attr_is_on = False
                     self._stage = "idle"
                     self._elapsed_seed = 0
@@ -289,7 +283,6 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                     if self._cooldown_s > 0:
                         self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
                 else:
-                    # optional clear on sustained high-flow (disabled by default)
                     if self._clear_on_high_s and self._high_since:
                         if (now - self._high_since).total_seconds() >= float(self._clear_on_high_s):
                             self._attr_is_on = False
@@ -299,13 +292,12 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                             self._last_state_change = now
                             if self._cooldown_s > 0:
                                 self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
-                    # remain triggered otherwise
 
-        # Attributes (do NOT expose unit_of_measurement on binary sensors)
+        # Attributes (no unit_of_measurement on binary sensor)
         self._attr_extra_state_attributes = {
             "stage": self._stage,
             "current_flow": round(float(smoothed), 3),
-            "flow_unit": self._unit,  # renamed from unit_of_measurement
+            "flow_unit": self._unit,
             "max_leak_flow": self._max_flow,
             "seed_low_flow_duration_s": self._seed_s,
             "min_duration_s": self._min_s,
@@ -320,6 +312,5 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             "last_state_change": self._last_state_change.isoformat() if self._last_state_change else None,
         }
 
-        # Only write state when something meaningful changed
         if prev_on != self._attr_is_on or prev_stage != self._stage:
             self.async_write_ha_state()

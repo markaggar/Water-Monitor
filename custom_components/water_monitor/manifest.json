@@ -1,9 +1,9 @@
 {
   "domain": "water_monitor",
   "name": "Water Monitor",
-  "version": "0.1.3",
-  "documentation": "https://github.com/markaggar/Water-Leak-Detector",
-  "issue_tracker": "https://github.com/markaggar/Water-Leak-Detector/issues",
+  "version": "0.1.4",
+  "documentation": "https://github.com/markaggar/Water-Monitor",
+  "issue_tracker": "https://github.com/markaggar/Water-Monitor/issues",
   "requirements": [],
   "codeowners": ["@markaggar"],
   "iot_class": "local_polling",

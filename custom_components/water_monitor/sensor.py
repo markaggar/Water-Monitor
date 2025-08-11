@@ -132,12 +132,14 @@ class WaterSessionSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Group both sensors under the integration 'device'."""
+        """Group both sensors under the integration device."""
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self._entry.title or "Water Monitor",
-            manufacturer="Water Monitor",
-            model="Session Tracker",
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
         )
 
     @property
@@ -307,12 +309,14 @@ class CurrentSessionVolumeSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Group both sensors under the integration 'device'."""
+        """Group both sensors under the integration device."""
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self._entry.title or "Water Monitor",
-            manufacturer="Water Monitor",
-            model="Session Tracker",
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
         )
 
     @property

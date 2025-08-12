@@ -16,13 +16,18 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
 - Hot water analytics
   - Tracks hot water time and percentage per session via an optional hot water binary sensor
 - Optional low-flow leak detector (binary sensor)
-  - Detects a continuous low-flow “dribble” and latches across nonzero usage
-  - Only clears when flow stops for a configured time (optional safety clear on sustained high flow)
+  - Detects a continuous low-flow “dribble” with seed/persistence timers
+  - Modes: any non-zero flow (wall clock), in-range-only (<= max low-flow), baseline latch (preview)
+  - Clears after zero-flow idle and/or after sustained high flow; optional cooldown prevents immediate re-trigger
   - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
 - Optional tank refill leak detector (binary sensor)
   - Detects repeated, similar-sized refills clustered in time (typical symptom of a leaky toilet flapper)
+  - Optional min/max duration gates and contributing events list
   - Event-driven: subscribes to the integration’s last session, no polling
   - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
+- Upstream sensors health (binary sensor)
+  - Monitors availability/validity of the configured upstream sensors (flow, volume, and optional hot-water)
+  - Attributes include per-entity last OK timestamps and unknown/unavailable lists
 - Reconfigurable via Options
   - Adjust sensors and thresholds at any time in the integration’s Configure dialog
   - Optional sensor name prefix for easy disambiguation in the UI
@@ -72,7 +77,8 @@ Low-flow leak (step 2)
 - Seed low-flow duration (seconds)
 - Leak persistence required to trigger (seconds)
 - Clear after zero-flow (seconds)
-- Counting mode: nonzero_wallclock or in_range_only
+- Counting mode: nonzero_wallclock, in_range_only, or baseline_latch (preview)
+- Baseline margin (%) (used by baseline_latch)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
@@ -85,6 +91,8 @@ Tank refill leak (step 2)
 - Window to count repeats (seconds)
 - Auto-clear after idle (seconds) — clears after this period with no matching refills
 - Cooldown after clear (seconds) — optional suppression period before re-triggering
+- Minimum refill duration (seconds; 0 disables)
+- Maximum refill duration (seconds; 0 disables)
 
 Reconfiguration
 - Open Settings → Devices & Services → Water Monitor → Configure.
@@ -116,8 +124,15 @@ Units
   - Attributes: debug_state
 - Low-flow leak (binary_sensor, optional)
   - State: on/off (device_class: problem)
-  - Latches across nonzero usage and clears only after true zero-flow for the configured duration
-  - Attributes: current_flow, thresholds, timers, and timestamps
+  - Seeds after continuous low-flow, then triggers after required persistence; clears after zero-flow and/or sustained high flow
+  - Attributes (highlights):
+    - mode, phase
+    - flow, max_low_flow
+    - seed_required_s, seed_progress_s
+    - min_duration_s, count_progress_s
+    - idle_zero_s, high_flow_s
+    - clear_idle_s, clear_on_high_s, cooldown_s, cooldown_until
+    - smoothing_s, baseline_margin_pct
 - Tank refill leak (binary_sensor, optional)
   - State: on/off (device_class: problem)
   - Detects repeated, similar refill events within a time window
@@ -128,6 +143,11 @@ Units
     - tolerance_pct, repeat_count, window_s
     - clear_idle_s, cooldown_s
     - last_event: ISO timestamp of last considered refill
+    - min_refill_duration_s, max_refill_duration_s
+    - contributing_events: array of {ts, volume, duration_s}
+ - Upstream sensors health (binary_sensor)
+   - State: on/off (device_class: connectivity)
+   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
 
 ## How it works
 
@@ -189,11 +209,12 @@ Notes
 - The Last session volume sensor’s state updates only after a session completes and passes thresholds.
 
 ### Low-flow leak basics
-- A low-flow baseline is established after a seed low-flow duration.
-- Once seeded, the sensor counts persistence toward trigger:
-  - nonzero_wallclock: count wall-clock time whenever flow > 0 (default)
-  - in_range_only: count only while flow is within the low-flow threshold
-- The sensor latches on across nonzero usage and clears only after zero-flow for the configured time.
+- Seeding: continuous low-flow must persist for the configured seed duration before counting begins (seed_s).
+- Once seeded, the sensor counts persistence toward trigger (min_s):
+  - nonzero_wallclock: counts wall-clock time whenever flow > 0 (default)
+  - in_range_only: counts only while 0 < flow ≤ max low-flow threshold
+  - baseline_latch (preview): currently behaves like in_range_only; a full baseline-latch implementation is planned
+- Clearing: after true zero-flow idle for clear_idle_s and/or after sustained high flow for clear_on_high_s; optional cooldown delays re-triggering.
 
 ### Tank refill leak basics
 - What it detects: clustered, similar-sized refills (e.g., multiple toilet tank refills) that suggest a slow leak.
@@ -201,7 +222,7 @@ Notes
 - Similarity: two refills are considered “similar” if the absolute difference is within the configured similarity tolerance percentage of the latest refill.
 - Trigger: when the number of similar refills within the configured window reaches the repeat count.
 - Clearing: when no similar refills occur for the configured idle period; optional cooldown prevents immediate re-triggering.
-- Guards: refills below Minimum or above Maximum (if set) are ignored to avoid false positives from noise or large draws unrelated to tank refills.
+- Guards: refills below Minimum/shorter than Min duration or above Maximum/longer than Max duration (if set) are ignored to avoid false positives from noise or large draws unrelated to tank refills.
 
 Tuning tips
 - Minimum refill volume: set just below your typical toilet refill to ignore tiny noise.
@@ -285,6 +306,7 @@ entities:
 - Ensure flow/volume sensors are set
 - If low-flow leak is enabled, make sure a flow sensor is selected
  - Derived sensors (duration, average flow, hot water %) are created automatically and stay in sync with the last-session sensor.
+ - If you removed and re-added the integration, re-enable low-flow/tank leak options in the setup steps to recreate their binary sensors.
 
 ### Low-flow leak not triggering
 - Reduce the max low-flow threshold or the seed/persistence durations

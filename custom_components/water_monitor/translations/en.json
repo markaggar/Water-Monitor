@@ -28,7 +28,9 @@
           "tank_refill_repeat_count": "Repeat count to trigger",
           "tank_refill_window_s": "Window to count repeats (seconds)",
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
-          "tank_refill_cooldown_s": "Cooldown after clear (seconds)"
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
+          "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)"
         },
         "data_description": {
           "tank_refill_min_volume": "Ignore refills smaller than this.",
@@ -37,7 +39,9 @@
           "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
           "tank_refill_window_s": "Time window to collect refills for comparison.",
           "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
-          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing."
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
+          "tank_refill_min_duration_s": "Ignore refills shorter than this (0 disables the guard).",
+          "tank_refill_max_duration_s": "Ignore refills longer than this (0 disables the guard)."
         }
       },
       "low_flow": {
@@ -51,10 +55,11 @@
           "low_flow_counting_mode": "Counting mode",
           "low_flow_smoothing_window_s": "Smoothing window (seconds)",
           "low_flow_cooldown_s": "Cooldown after clear (seconds)",
-          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
+          "low_flow_baseline_margin_pct": "Baseline margin (%)"
         },
         "data_description": {
-          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow"
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
       }
     },
@@ -90,7 +95,9 @@
           "tank_refill_repeat_count": "Repeat count to trigger",
           "tank_refill_window_s": "Window to count repeats (seconds)",
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
-          "tank_refill_cooldown_s": "Cooldown after clear (seconds)"
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
+          "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)"
         },
         "data_description": {
           "tank_refill_min_volume": "Ignore refills smaller than this.",
@@ -99,7 +106,9 @@
           "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
           "tank_refill_window_s": "Time window to collect refills for comparison.",
           "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
-          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing."
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
+          "tank_refill_min_duration_s": "Ignore refills shorter than this (0 disables the guard).",
+          "tank_refill_max_duration_s": "Ignore refills longer than this (0 disables the guard)."
         }
       },
       "low_flow": {
@@ -113,10 +122,11 @@
           "low_flow_counting_mode": "Counting mode",
           "low_flow_smoothing_window_s": "Smoothing window (seconds)",
           "low_flow_cooldown_s": "Cooldown after clear (seconds)",
-          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)"
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
+          "low_flow_baseline_margin_pct": "Baseline margin (%)"
         },
         "data_description": {
-          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow"
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
       }
     }

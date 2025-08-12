@@ -258,6 +258,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._tank_leak_enabled:
                 return await self.async_step_tank_leak()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
+    # Show low-flow configuration form on initial entry
+    return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(self._data))
     async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
         if user_input is not None:
             self._data.update(user_input)

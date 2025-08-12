@@ -30,6 +30,14 @@ from .const import (
     CONF_LOW_FLOW_CLEAR_ON_HIGH_S,
     COUNTING_MODE_NONZERO,
     COUNTING_MODE_IN_RANGE,
+    # tank refill leak
+    CONF_TANK_LEAK_ENABLE,
+    CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+    CONF_TANK_LEAK_TOLERANCE_PCT,
+    CONF_TANK_LEAK_REPEAT_COUNT,
+    CONF_TANK_LEAK_WINDOW_S,
+    CONF_TANK_LEAK_CLEAR_IDLE_S,
+    CONF_TANK_LEAK_COOLDOWN_S,
 )
 
 # Try to use HA selectors; fall back to plain types if not available
@@ -116,6 +124,7 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         min_=0, step=1
     )
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
+    fields[vol.Required(CONF_TANK_LEAK_ENABLE, default=ex.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))] = s_bool()
 
     return vol.Schema(fields)
 
@@ -176,12 +185,50 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
+    ex = existing or {}
+    fields: Dict[Any, Any] = {}
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+        default=ex.get(CONF_TANK_LEAK_MIN_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_VOLUME])
+    )] = s_number(min_=0.01, step=0.01)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_TOLERANCE_PCT,
+        default=ex.get(CONF_TANK_LEAK_TOLERANCE_PCT, DEFAULTS[CONF_TANK_LEAK_TOLERANCE_PCT])
+    )] = s_number(min_=1, step=1)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_REPEAT_COUNT,
+        default=ex.get(CONF_TANK_LEAK_REPEAT_COUNT, DEFAULTS[CONF_TANK_LEAK_REPEAT_COUNT])
+    )] = s_int(min_=2, step=1)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_WINDOW_S,
+        default=ex.get(CONF_TANK_LEAK_WINDOW_S, DEFAULTS[CONF_TANK_LEAK_WINDOW_S])
+    )] = s_int(min_=60, step=60)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_CLEAR_IDLE_S,
+        default=ex.get(CONF_TANK_LEAK_CLEAR_IDLE_S, DEFAULTS[CONF_TANK_LEAK_CLEAR_IDLE_S])
+    )] = s_int(min_=60, step=60)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_COOLDOWN_S,
+        default=ex.get(CONF_TANK_LEAK_COOLDOWN_S, DEFAULTS[CONF_TANK_LEAK_COOLDOWN_S])
+    )] = s_int(min_=0, step=60)
+
+    return vol.Schema(fields)
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
         self._data: Dict[str, Any] = {}
-        self._low_flow_enabled = False
+    self._low_flow_enabled = False
+    self._tank_leak_enabled = False
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         errors: Dict[str, str] = {}
@@ -192,8 +239,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._data.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, False))
+            self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, False))
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
+            if self._tank_leak_enabled:
+                return await self.async_step_tank_leak()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
 
         return self.async_show_form(step_id="user", data_schema=_main_schema(), errors=errors)
@@ -205,7 +255,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input.get(CONF_LOW_FLOW_CLEAR_ON_HIGH_S)
             )
             self._data.update(user_input)
+            if self._tank_leak_enabled:
+                return await self.async_step_tank_leak()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
+    async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
+
+        return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(self._data))
 
         return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(self._data))
 
@@ -220,7 +278,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
         self._entry = config_entry
         self._existing = {**config_entry.data, **config_entry.options}
         self._opts: Dict[str, Any] = {}
-        self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
+    self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
+    self._tank_leak_enabled = bool(self._existing.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
 
     @callback
     def _store(self):
@@ -234,8 +293,11 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
 
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
+            self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
+            if self._tank_leak_enabled:
+                return await self.async_step_tank_leak()
             return self._store()
 
         defaults = {
@@ -250,6 +312,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_SESSION_GAP_TOLERANCE,
                 CONF_SESSION_CONTINUITY_WINDOW,
                 CONF_LOW_FLOW_ENABLE,
+                CONF_TANK_LEAK_ENABLE,
             ]
         }
         return self.async_show_form(step_id="init", data_schema=_main_schema(defaults))
@@ -276,3 +339,21 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             ]
         }
         return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(defaults))
+
+    async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            self._opts.update(user_input)
+            return self._store()
+
+        defaults = {
+            k: self._existing.get(k, DEFAULTS.get(k))
+            for k in [
+                CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+                CONF_TANK_LEAK_TOLERANCE_PCT,
+                CONF_TANK_LEAK_REPEAT_COUNT,
+                CONF_TANK_LEAK_WINDOW_S,
+                CONF_TANK_LEAK_CLEAR_IDLE_S,
+                CONF_TANK_LEAK_COOLDOWN_S,
+            ]
+        }
+        return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(defaults))

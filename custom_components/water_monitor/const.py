@@ -46,4 +46,28 @@ DEFAULTS = {
     CONF_LOW_FLOW_SMOOTHING_S: 5,
     CONF_LOW_FLOW_COOLDOWN_S: 0,
     CONF_LOW_FLOW_CLEAR_ON_HIGH_S: None,
+    # Tank refill leak (disabled by default)
+    # Enable flag
+    # Thresholds and behavior
+    # Note: volumes use the same unit as the configured volume sensor
+}
+
+# Tank refill leak detector (optional) - config/option keys
+CONF_TANK_LEAK_ENABLE = "tank_refill_leak_enable"
+CONF_TANK_LEAK_MIN_REFILL_VOLUME = "tank_refill_min_volume"  # minimum session volume to be considered a refill
+CONF_TANK_LEAK_TOLERANCE_PCT = "tank_refill_volume_tolerance_pct"  # percent similarity window
+CONF_TANK_LEAK_REPEAT_COUNT = "tank_refill_repeat_count"  # consecutive similar refills needed to trigger
+CONF_TANK_LEAK_WINDOW_S = "tank_refill_window_s"  # time window to count repeats
+CONF_TANK_LEAK_CLEAR_IDLE_S = "tank_refill_clear_idle_s"  # time with no matching refills to auto-clear
+CONF_TANK_LEAK_COOLDOWN_S = "tank_refill_cooldown_s"  # suppress re-triggering after clear
+
+# Extend defaults after keys are declared
+DEFAULTS.update({
+    CONF_TANK_LEAK_ENABLE: False,
+    CONF_TANK_LEAK_MIN_REFILL_VOLUME: 0.3,
+    CONF_TANK_LEAK_TOLERANCE_PCT: 10.0,
+    CONF_TANK_LEAK_REPEAT_COUNT: 3,
+    CONF_TANK_LEAK_WINDOW_S: 15 * 60,  # 15 minutes
+    CONF_TANK_LEAK_CLEAR_IDLE_S: 30 * 60,  # 30 minutes of no matching refills
+    CONF_TANK_LEAK_COOLDOWN_S: 0,
 }

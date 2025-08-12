@@ -338,6 +338,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 user_input.get(CONF_LOW_FLOW_CLEAR_ON_HIGH_S)
             )
             self._opts.update(user_input)
+            if self._tank_leak_enabled:
+                return await self.async_step_tank_leak()
             return self._store()
 
         defaults = {

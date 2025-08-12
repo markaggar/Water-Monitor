@@ -70,4 +70,4 @@ DEFAULTS.update({
     CONF_TANK_LEAK_WINDOW_S: 15 * 60,  # 15 minutes
     CONF_TANK_LEAK_CLEAR_IDLE_S: 30 * 60,  # 30 minutes of no matching refills
     CONF_TANK_LEAK_COOLDOWN_S: 0,
-}
+})

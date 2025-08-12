@@ -22,6 +22,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_call_later,
+    async_track_time_interval,
 )
 
 from .const import (
@@ -30,6 +31,21 @@ from .const import (
     CONF_FLOW_SENSOR,
     CONF_VOLUME_SENSOR,
     CONF_HOT_WATER_SENSOR,
+    # Low-flow
+    CONF_LOW_FLOW_ENABLE,
+    CONF_LOW_FLOW_MAX_FLOW,
+    CONF_LOW_FLOW_SEED_S,
+    CONF_LOW_FLOW_MIN_S,
+    CONF_LOW_FLOW_CLEAR_IDLE_S,
+    CONF_LOW_FLOW_COUNTING_MODE,
+    CONF_LOW_FLOW_SMOOTHING_S,
+    CONF_LOW_FLOW_COOLDOWN_S,
+    CONF_LOW_FLOW_CLEAR_ON_HIGH_S,
+    COUNTING_MODE_NONZERO,
+    COUNTING_MODE_IN_RANGE,
+    COUNTING_MODE_BASELINE_LATCH,
+    CONF_LOW_FLOW_BASELINE_MARGIN_PCT,
+    UPDATE_INTERVAL,
     # Tank leak
     CONF_TANK_LEAK_ENABLE,
     CONF_TANK_LEAK_MIN_REFILL_VOLUME,
@@ -68,6 +84,29 @@ async def async_setup_entry(
             hot_water_entity_id=hot_water_sensor,
         )
     )
+
+    # Low-flow leak detector (optional)
+    if opts.get(CONF_LOW_FLOW_ENABLE):
+        entities.append(
+            LowFlowLeakBinarySensor(
+                entry=entry,
+                name=f"{prefix} Low-flow leak",
+                max_low_flow=float(opts.get(CONF_LOW_FLOW_MAX_FLOW) or 0.5),
+                seed_s=int(opts.get(CONF_LOW_FLOW_SEED_S) or 60),
+                min_s=int(opts.get(CONF_LOW_FLOW_MIN_S) or 300),
+                clear_idle_s=int(opts.get(CONF_LOW_FLOW_CLEAR_IDLE_S) or 30),
+                counting_mode=str(opts.get(CONF_LOW_FLOW_COUNTING_MODE) or COUNTING_MODE_NONZERO),
+                smoothing_s=int(opts.get(CONF_LOW_FLOW_SMOOTHING_S) or 0),
+                cooldown_s=int(opts.get(CONF_LOW_FLOW_COOLDOWN_S) or 0),
+                clear_on_high_s=(
+                    int(opts.get(CONF_LOW_FLOW_CLEAR_ON_HIGH_S))
+                    if opts.get(CONF_LOW_FLOW_CLEAR_ON_HIGH_S) not in (None, "")
+                    else None
+                ),
+                baseline_margin_pct=float(opts.get(CONF_LOW_FLOW_BASELINE_MARGIN_PCT) or 10.0),
+                flow_entity_id=flow_sensor,
+            )
+        )
 
     # Tank refill leak detector (optional)
     if opts.get(CONF_TANK_LEAK_ENABLE):
@@ -227,6 +266,213 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
             "name_to_entity": name_to_entity,
             **per_name_last_ok,
         }
+        self.async_write_ha_state()
+
+
+class LowFlowLeakBinarySensor(BinarySensorEntity):
+    """Detects sustained low-flow conditions as a leak.
+
+    Modes:
+    - nonzero_wallclock: counts all wall-clock time while flow > 0
+    - in_range_only: counts only while 0 < flow <= max_low_flow
+
+    Baseline latch is accepted but treated like in_range_only for now.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        name: str,
+        max_low_flow: float,
+        seed_s: int,
+        min_s: int,
+        clear_idle_s: int,
+        counting_mode: str,
+        smoothing_s: int,
+        cooldown_s: int,
+        clear_on_high_s: Optional[int],
+        baseline_margin_pct: float,
+        flow_entity_id: Optional[str],
+    ) -> None:
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_low_flow_leak"
+        self._attr_is_on = False
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+
+        self._flow_entity_id = flow_entity_id
+
+        self._max_low_flow = float(max_low_flow)
+        self._seed_s = int(seed_s)
+        self._min_s = int(min_s)
+        self._clear_idle_s = int(clear_idle_s)
+        self._counting_mode = counting_mode
+        self._smoothing_s = int(smoothing_s)
+        self._cooldown_s = int(cooldown_s)
+        self._clear_on_high_s = int(clear_on_high_s) if clear_on_high_s else None
+        self._baseline_margin_pct = float(baseline_margin_pct)
+
+        self._unsub_state = None
+        self._unsub_timer = None
+
+        # Runtime counters
+        self._seeded = False
+        self._seed_progress = 0.0
+        self._count_progress = 0.0
+        self._idle_zero_s = 0.0
+        self._high_flow_s = 0.0
+        self._last_update: Optional[datetime] = None
+        self._cooldown_until: Optional[datetime] = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        self._attr_is_on = False
+        self._attr_available = True
+        self._last_update = datetime.now(timezone.utc)
+        self.async_write_ha_state()
+
+        if self._flow_entity_id:
+            self._unsub_state = async_track_state_change_event(
+                self.hass, [self._flow_entity_id], self._async_flow_changed
+            )
+        # Periodic to advance clocks
+        self._unsub_timer = async_track_time_interval(
+            self.hass, self._async_tick, timedelta(seconds=UPDATE_INTERVAL)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_state:
+            self._unsub_state()
+            self._unsub_state = None
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    async def _async_flow_changed(self, event) -> None:
+        await self._evaluate(datetime.now(timezone.utc))
+
+    @callback
+    async def _async_tick(self, now: datetime) -> None:
+        await self._evaluate(now)
+
+    def _current_flow(self) -> Optional[float]:
+        st = self.hass.states.get(self._flow_entity_id) if self._flow_entity_id else None
+        if not st or st.state in (None, "unknown", "unavailable"):
+            return None
+        try:
+            return float(st.state)
+        except (ValueError, TypeError):
+            return None
+
+    async def _evaluate(self, now: datetime) -> None:
+        if self._last_update is None:
+            self._last_update = now
+        dt = (now - self._last_update).total_seconds()
+        if dt < 0:
+            dt = 0
+        flow = self._current_flow()
+        if flow is None:
+            # treat as zero flow for timers
+            flow = 0.0
+
+        # Counting activity by mode
+        if self._counting_mode == COUNTING_MODE_NONZERO:
+            counting_active = flow > 0.0
+        else:  # IN_RANGE or BASELINE treated similarly for now
+            counting_active = flow > 0.0 and (self._max_low_flow <= 0.0 or flow <= self._max_low_flow)
+
+        # Seed and count progression
+        if counting_active:
+            # zero-idle resets while active
+            self._idle_zero_s = 0.0
+            if self._clear_on_high_s and self._max_low_flow > 0 and flow > self._max_low_flow:
+                self._high_flow_s += dt
+            else:
+                self._high_flow_s = 0.0
+
+            if not self._seeded:
+                self._seed_progress += dt
+                if self._seed_s == 0 or self._seed_progress >= self._seed_s:
+                    self._seeded = True
+                    self._count_progress = 0.0
+            else:
+                self._count_progress += dt
+        else:
+            # inactive flow
+            if flow <= 0.0:
+                self._idle_zero_s += dt
+            else:
+                self._idle_zero_s = 0.0
+            if self._clear_on_high_s and self._max_low_flow > 0 and flow > self._max_low_flow:
+                self._high_flow_s += dt
+            else:
+                self._high_flow_s = 0.0
+
+            if not self._seeded:
+                self._seed_progress = 0.0
+            else:
+                self._count_progress = 0.0
+
+        # Clear conditions
+        cleared = False
+        if self._attr_is_on:
+            if self._clear_idle_s > 0 and self._idle_zero_s >= self._clear_idle_s:
+                self._attr_is_on = False
+                cleared = True
+            elif self._clear_on_high_s and self._high_flow_s >= self._clear_on_high_s:
+                self._attr_is_on = False
+                cleared = True
+            if cleared and self._cooldown_s > 0:
+                self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
+
+        # Trigger condition
+        can_trigger = not self._cooldown_until or now >= self._cooldown_until
+        if not self._attr_is_on and can_trigger and self._seeded and self._count_progress >= self._min_s:
+            self._attr_is_on = True
+
+        # Phase
+        if self._attr_is_on:
+            phase = "alarmed"
+        elif not self._seeded:
+            phase = "seeding" if counting_active else "idle"
+        else:
+            phase = "counting" if counting_active else "idle"
+
+        self._attr_extra_state_attributes = {
+            "mode": self._counting_mode,
+            "phase": phase,
+            "flow": flow,
+            "max_low_flow": self._max_low_flow,
+            "seed_required_s": self._seed_s,
+            "seed_progress_s": round(self._seed_progress, 1),
+            "min_duration_s": self._min_s,
+            "count_progress_s": round(self._count_progress, 1),
+            "idle_zero_s": round(self._idle_zero_s, 1),
+            "high_flow_s": round(self._high_flow_s, 1),
+            "clear_idle_s": self._clear_idle_s,
+            "clear_on_high_s": self._clear_on_high_s,
+            "cooldown_s": self._cooldown_s,
+            "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
+            "smoothing_s": self._smoothing_s,
+            "baseline_margin_pct": self._baseline_margin_pct,
+        }
+
+        self._last_update = now
         self.async_write_ha_state()
 
 

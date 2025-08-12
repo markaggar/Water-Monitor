@@ -33,6 +33,7 @@ from .const import (
     # tank refill leak
     CONF_TANK_LEAK_ENABLE,
     CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+    CONF_TANK_LEAK_MAX_REFILL_VOLUME,
     CONF_TANK_LEAK_TOLERANCE_PCT,
     CONF_TANK_LEAK_REPEAT_COUNT,
     CONF_TANK_LEAK_WINDOW_S,
@@ -193,6 +194,12 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         CONF_TANK_LEAK_MIN_REFILL_VOLUME,
         default=ex.get(CONF_TANK_LEAK_MIN_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_VOLUME])
     )] = s_number(min_=0.01, step=0.01)
+
+    # Optional max: allow 0 to disable
+    fields[vol.Required(
+        CONF_TANK_LEAK_MAX_REFILL_VOLUME,
+        default=ex.get(CONF_TANK_LEAK_MAX_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MAX_REFILL_VOLUME])
+    )] = s_number(min_=0, step=0.01)
 
     fields[vol.Required(
         CONF_TANK_LEAK_TOLERANCE_PCT,
@@ -357,6 +364,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             k: self._existing.get(k, DEFAULTS.get(k))
             for k in [
                 CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+                CONF_TANK_LEAK_MAX_REFILL_VOLUME,
                 CONF_TANK_LEAK_TOLERANCE_PCT,
                 CONF_TANK_LEAK_REPEAT_COUNT,
                 CONF_TANK_LEAK_WINDOW_S,

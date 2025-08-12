@@ -55,6 +55,7 @@ DEFAULTS = {
 # Tank refill leak detector (optional) - config/option keys
 CONF_TANK_LEAK_ENABLE = "tank_refill_leak_enable"
 CONF_TANK_LEAK_MIN_REFILL_VOLUME = "tank_refill_min_volume"  # minimum session volume to be considered a refill
+CONF_TANK_LEAK_MAX_REFILL_VOLUME = "tank_refill_max_volume"  # optional: ignore events above this volume (0 disables)
 CONF_TANK_LEAK_TOLERANCE_PCT = "tank_refill_volume_tolerance_pct"  # percent similarity window
 CONF_TANK_LEAK_REPEAT_COUNT = "tank_refill_repeat_count"  # consecutive similar refills needed to trigger
 CONF_TANK_LEAK_WINDOW_S = "tank_refill_window_s"  # time window to count repeats
@@ -65,6 +66,7 @@ CONF_TANK_LEAK_COOLDOWN_S = "tank_refill_cooldown_s"  # suppress re-triggering a
 DEFAULTS.update({
     CONF_TANK_LEAK_ENABLE: False,
     CONF_TANK_LEAK_MIN_REFILL_VOLUME: 0.3,
+    CONF_TANK_LEAK_MAX_REFILL_VOLUME: 0.0,  # 0 = disabled
     CONF_TANK_LEAK_TOLERANCE_PCT: 10.0,
     CONF_TANK_LEAK_REPEAT_COUNT: 3,
     CONF_TANK_LEAK_WINDOW_S: 15 * 60,  # 15 minutes

@@ -41,6 +41,7 @@ from .const import (
     # tank refill leak
     CONF_TANK_LEAK_ENABLE,
     CONF_TANK_LEAK_MIN_REFILL_VOLUME,
+    CONF_TANK_LEAK_MAX_REFILL_VOLUME,
     CONF_TANK_LEAK_TOLERANCE_PCT,
     CONF_TANK_LEAK_REPEAT_COUNT,
     CONF_TANK_LEAK_WINDOW_S,
@@ -381,6 +382,9 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         self._min_volume = float(
             ex.get(CONF_TANK_LEAK_MIN_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_VOLUME])
         )
+        self._max_volume = float(
+            ex.get(CONF_TANK_LEAK_MAX_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MAX_REFILL_VOLUME])
+        )
         self._tol_pct = float(
             ex.get(CONF_TANK_LEAK_TOLERANCE_PCT, DEFAULTS[CONF_TANK_LEAK_TOLERANCE_PCT])
         )
@@ -483,7 +487,9 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         if prev_vol is None or abs(vol - prev_vol) > 1e-6:
             changed = True
 
-        if changed and vol >= self._min_volume:
+        if changed and vol >= self._min_volume and (
+            self._max_volume <= 0.0 or vol <= self._max_volume
+        ):
             self._history.append((now, vol))
             self._last_event = now
 
@@ -517,6 +523,7 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             "events_in_window": len(self._history),
             "similar_count": count,
             "min_refill_volume": self._min_volume,
+            "max_refill_volume": self._max_volume,
             "tolerance_pct": self._tol_pct,
             "repeat_count": self._repeat,
             "window_s": self._window_s,

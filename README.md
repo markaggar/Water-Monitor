@@ -16,6 +16,10 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
   - Detects a continuous low-flow “dribble” and latches across nonzero usage
   - Only clears when flow stops for a configured time (optional safety clear on sustained high flow)
   - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
+- Optional tank refill leak detector (binary sensor)
+  - Detects repeated, similar-sized refills clustered in time (typical symptom of a leaky toilet flapper)
+  - Event-driven: subscribes to the integration’s last session, no polling
+  - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
 - Reconfigurable via Options
   - Adjust sensors and thresholds at any time in the integration’s Configure dialog
   - Optional sensor name prefix for easy disambiguation in the UI
@@ -49,6 +53,7 @@ Setup page (step 1)
 - Gap Tolerance (seconds)
 - Continuity Window (seconds)
 - Create Low-flow leak sensor (checkbox)
+- Create Tank refill leak sensor (checkbox)
 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
 
@@ -61,6 +66,15 @@ Low-flow leak (step 2)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
+
+Tank refill leak (step 2)
+- Minimum refill volume (ignore refills smaller than this)
+- Maximum refill volume (ignore refills larger than this; 0 disables the cap)
+- Similarity tolerance (%) — how close in volume refills must be to count as “similar”
+- Repeat count to trigger — number of similar refills within the window required to turn the sensor on
+- Window to count repeats (seconds)
+- Auto-clear after idle (seconds) — clears after this period with no matching refills
+- Cooldown after clear (seconds) — optional suppression period before re-triggering
 
 Reconfiguration
 - Open Settings → Devices & Services → Water Monitor → Configure.
@@ -84,6 +98,16 @@ Units
   - State: on/off (device_class: problem)
   - Latches across nonzero usage and clears only after true zero-flow for the configured duration
   - Attributes: current_flow, thresholds, timers, and timestamps
+- Tank refill leak (binary_sensor, optional)
+  - State: on/off (device_class: problem)
+  - Detects repeated, similar refill events within a time window
+  - Attributes (highlights):
+    - events_in_window: Number of refill events in the current window
+    - similar_count: Count of events similar to the latest refill (within tolerance)
+    - min_refill_volume / max_refill_volume
+    - tolerance_pct, repeat_count, window_s
+    - clear_idle_s, cooldown_s
+    - last_event: ISO timestamp of last considered refill
 
 ## How it works
 
@@ -140,6 +164,20 @@ Notes
   - in_range_only: count only while flow is within the low-flow threshold
 - The sensor latches on across nonzero usage and clears only after zero-flow for the configured time.
 
+### Tank refill leak basics
+- What it detects: clustered, similar-sized refills (e.g., multiple toilet tank refills) that suggest a slow leak.
+- Event source: the integration’s “Last session volume” updates; the tank sensor listens for completed sessions and examines their volumes.
+- Similarity: two refills are considered “similar” if the absolute difference is within the configured similarity tolerance percentage of the latest refill.
+- Trigger: when the number of similar refills within the configured window reaches the repeat count.
+- Clearing: when no similar refills occur for the configured idle period; optional cooldown prevents immediate re-triggering.
+- Guards: refills below Minimum or above Maximum (if set) are ignored to avoid false positives from noise or large draws unrelated to tank refills.
+
+Tuning tips
+- Minimum refill volume: set just below your typical toilet refill to ignore tiny noise.
+- Maximum refill volume: set just above a toilet refill to ignore showers/sprinklers; set 0 to disable the cap.
+- Similarity tolerance: start around 10%; increase if your meter reports variable volumes per flush.
+- Repeat count and window: choose how many similar refills within what time should indicate a leak (e.g., 3 within 15 minutes).
+
 ### Hot water
 - Provide an optional binary sensor that reflects when hot water is active
 - Hot water time is accumulated during active sessions and summarized as a percentage
@@ -175,6 +213,12 @@ entities:
     attribute: last_session_duration
   - entity: sensor.current_session_volume   # replace with your actual entity_id
     name: "Current Session Volume"
+
+# Optional binary sensors (if enabled)
+  - entity: binary_sensor.water_monitor_tank_refill_leak   # example name
+    name: "Tank Refill Leak"
+  - entity: binary_sensor.water_monitor_low_flow_leak      # example name
+    name: "Low-flow Leak"
 ```
 
 ## Compatibility

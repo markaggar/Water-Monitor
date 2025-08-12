@@ -72,7 +72,33 @@ async def async_setup_entry(
     # Link them together
     main_sensor.set_current_session_callback(current_sensor.update_from_tracker)
 
-    async_add_entities([main_sensor, current_sensor])
+    # New last-session metrics sensors (always created; no user options)
+    tracked = [e for e in [flow_sensor, volume_sensor, hot_water_sensor] if e]
+    duration_sensor = LastSessionDurationSensor(
+        entry=config_entry,
+        name=f"{sensor_prefix} Last session duration",
+        unique_suffix="last_session_duration",
+        tracked_entities=tracked,
+    )
+    avg_flow_sensor = LastSessionAverageFlowSensor(
+        entry=config_entry,
+        name=f"{sensor_prefix} Last session average flow",
+        unique_suffix="last_session_avg_flow",
+        tracked_entities=tracked,
+    )
+    hot_pct_sensor = LastSessionHotWaterPctSensor(
+        entry=config_entry,
+        name=f"{sensor_prefix} Last session hot water percentage",
+        unique_suffix="last_session_hot_pct",
+        tracked_entities=tracked,
+    )
+
+    # Register listeners so they stay in sync with the tracker
+    main_sensor.add_state_listener(duration_sensor.update_from_tracker)
+    main_sensor.add_state_listener(avg_flow_sensor.update_from_tracker)
+    main_sensor.add_state_listener(hot_pct_sensor.update_from_tracker)
+
+    async_add_entities([main_sensor, current_sensor, duration_sensor, avg_flow_sensor, hot_pct_sensor])
 
 
 class WaterSessionSensor(SensorEntity):
@@ -127,8 +153,10 @@ class WaterSessionSensor(SensorEntity):
         self._periodic_update_unsub = None
         self._needs_periodic_updates = False
 
-        # Callback for current session sensor
-        self._current_session_callback: Optional[Callable] = None
+        # Callbacks for dependent sensors (current session + metrics sensors)
+        self._listeners = []
+
+    # Note: listeners are initialized per-instance in __init__
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -153,8 +181,14 @@ class WaterSessionSensor(SensorEntity):
         return self._attr_available
 
     def set_current_session_callback(self, callback: Callable):
-        """Set callback to notify current session sensor of updates."""
-        self._current_session_callback = callback
+        """Back-compat: add a single listener (current session sensor)."""
+        # Keep the method name for backward compatibility, but support multiple listeners internally.
+        self.add_state_listener(callback)
+
+    def add_state_listener(self, callback: Callable[[dict], Any]):
+        """Register a listener to receive tracker state_data updates."""
+        if callback not in self._listeners:
+            self._listeners.append(callback)
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks when entity is added to hass."""
@@ -262,12 +296,12 @@ class WaterSessionSensor(SensorEntity):
             self._attr_extra_state_attributes = state_data
             self._attr_available = True
 
-            # Notify current session sensor of update (protected)
-            if self._current_session_callback:
+            # Notify all listeners (dependent sensors)
+            for cb in list(self._listeners):
                 try:
-                    await self._current_session_callback(state_data)
+                    await cb(state_data)
                 except Exception as err:
-                    _LOGGER.exception("Current session sensor update failed: %s", err)
+                    _LOGGER.exception("Listener update failed: %s", err)
 
             # Decide periodic update scheduling
             should_update, reason = self._should_use_periodic_updates(state_data)
@@ -416,5 +450,135 @@ class CurrentSessionVolumeSensor(SensorEntity):
         self._attr_available = True
 
         # Only write state if hass is available
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+
+class _BaseDependentSensor(SensorEntity):
+    """Base for sensors that depend on upstream entities and tracker callbacks."""
+
+    _tracked_entities: list[str]
+
+    def __init__(self, entry: ConfigEntry, name: str, unique_suffix: str, tracked_entities: list[str]):
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_{unique_suffix}"
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+        # Track upstream to manage availability
+        self._tracked_entities = [e for e in tracked_entities if e]
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    def _upstream_available(self) -> bool:
+        if not self._tracked_entities:
+            return True
+        for ent_id in self._tracked_entities:
+            st = self.hass.states.get(ent_id) if self.hass else None
+            if not st or st.state in (None, "unknown", "unavailable"):
+                return False
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        # Initial availability check
+        self._attr_available = self._upstream_available()
+        self.async_write_ha_state()
+
+        # Subscribe to upstream entity state changes to reflect availability
+        if self._tracked_entities:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    self._tracked_entities,
+                    self._async_upstream_changed,
+                )
+            )
+
+    async def _async_upstream_changed(self, event) -> None:
+        was = self._attr_available
+        now = self._upstream_available()
+        if was != now:
+            self._attr_available = now
+            self.async_write_ha_state()
+
+
+class LastSessionDurationSensor(_BaseDependentSensor):
+    """Reports the duration (s) of the last completed session."""
+
+    _attr_icon = "mdi:timer"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: ConfigEntry, name: str, unique_suffix: str, tracked_entities: list[str]):
+        super().__init__(entry, name, unique_suffix, tracked_entities)
+        self._attr_native_unit_of_measurement = "s"
+        self._attr_native_value = 0
+
+    async def update_from_tracker(self, state_data: dict):
+        # Only mark available True if upstream is available
+        self._attr_available = self._upstream_available()
+        val = int(state_data.get("last_session_duration", 0) or 0)
+        self._attr_native_value = val
+        self._attr_extra_state_attributes = {
+            "debug_state": state_data.get("debug_state"),
+        }
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+
+class LastSessionAverageFlowSensor(_BaseDependentSensor):
+    """Reports average flow of the last session (volume unit per minute)."""
+
+    _attr_icon = "mdi:water"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, entry: ConfigEntry, name: str, unique_suffix: str, tracked_entities: list[str]):
+        super().__init__(entry, name, unique_suffix, tracked_entities)
+        self._attr_native_unit_of_measurement = None  # set from volume unit
+        self._attr_native_value = 0.0
+
+    async def update_from_tracker(self, state_data: dict):
+        self._attr_available = self._upstream_available()
+        vol_unit = state_data.get("volume_unit")
+        if vol_unit:
+            self._attr_native_unit_of_measurement = f"{vol_unit}/min"
+        val = float(state_data.get("last_session_average_flow", 0.0) or 0.0)
+        self._attr_native_value = round(val, 2)
+        self._attr_extra_state_attributes = {
+            "volume_unit": vol_unit,
+            "debug_state": state_data.get("debug_state"),
+        }
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+
+class LastSessionHotWaterPctSensor(_BaseDependentSensor):
+    """Reports hot water percentage of the last session."""
+
+    _attr_icon = "mdi:fire"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: ConfigEntry, name: str, unique_suffix: str, tracked_entities: list[str]):
+        super().__init__(entry, name, unique_suffix, tracked_entities)
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_native_value = 0.0
+
+    async def update_from_tracker(self, state_data: dict):
+        self._attr_available = self._upstream_available()
+        val = float(state_data.get("last_session_hot_water_pct", 0.0) or 0.0)
+        # Tracker rounds to 0.1; keep one decimal
+        self._attr_native_value = round(val, 1)
+        self._attr_extra_state_attributes = {
+            "debug_state": state_data.get("debug_state"),
+        }
         if self.hass is not None:
             self.async_write_ha_state()

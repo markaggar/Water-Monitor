@@ -28,6 +28,11 @@ CONF_LOW_FLOW_CLEAR_ON_HIGH_S = "low_flow_clear_on_sustained_high_flow_s"  # opt
 
 COUNTING_MODE_NONZERO = "nonzero_wallclock"
 COUNTING_MODE_IN_RANGE = "in_range_only"
+COUNTING_MODE_BASELINE_LATCH = "baseline_latch"
+
+# Low-flow baseline latch options
+CONF_LOW_FLOW_BASELINE_MARGIN_PCT = "low_flow_baseline_margin_pct"
+
 
 # Defaults
 DEFAULTS = {
@@ -46,6 +51,7 @@ DEFAULTS = {
     CONF_LOW_FLOW_SMOOTHING_S: 5,
     CONF_LOW_FLOW_COOLDOWN_S: 0,
     CONF_LOW_FLOW_CLEAR_ON_HIGH_S: None,
+    CONF_LOW_FLOW_BASELINE_MARGIN_PCT: 10.0,
     # Tank refill leak (disabled by default)
     # Enable flag
     # Thresholds and behavior
@@ -61,6 +67,8 @@ CONF_TANK_LEAK_REPEAT_COUNT = "tank_refill_repeat_count"  # consecutive similar 
 CONF_TANK_LEAK_WINDOW_S = "tank_refill_window_s"  # time window to count repeats
 CONF_TANK_LEAK_CLEAR_IDLE_S = "tank_refill_clear_idle_s"  # time with no matching refills to auto-clear
 CONF_TANK_LEAK_COOLDOWN_S = "tank_refill_cooldown_s"  # suppress re-triggering after clear
+CONF_TANK_LEAK_MIN_REFILL_DURATION_S = "tank_refill_min_duration_s"  # optional: ignore events shorter than this (0 disables)
+CONF_TANK_LEAK_MAX_REFILL_DURATION_S = "tank_refill_max_duration_s"  # optional: ignore events longer than this (0 disables)
 
 # Extend defaults after keys are declared
 DEFAULTS.update({
@@ -72,4 +80,6 @@ DEFAULTS.update({
     CONF_TANK_LEAK_WINDOW_S: 15 * 60,  # 15 minutes
     CONF_TANK_LEAK_CLEAR_IDLE_S: 30 * 60,  # 30 minutes of no matching refills
     CONF_TANK_LEAK_COOLDOWN_S: 0,
+    CONF_TANK_LEAK_MIN_REFILL_DURATION_S: 0,
+    CONF_TANK_LEAK_MAX_REFILL_DURATION_S: 0,
 })

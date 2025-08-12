@@ -7,7 +7,7 @@ from homeassistant.helpers import device_registry as dr
 from .const import DOMAIN, CONF_SENSOR_PREFIX
 
 # Platforms provided by this integration
-PLATFORMS: list[str] = ["sensor", "binary_sensor"]
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "number"]
 
 
 async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

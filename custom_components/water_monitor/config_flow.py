@@ -30,6 +30,8 @@ from .const import (
     CONF_LOW_FLOW_CLEAR_ON_HIGH_S,
     COUNTING_MODE_NONZERO,
     COUNTING_MODE_IN_RANGE,
+    COUNTING_MODE_BASELINE_LATCH,
+    CONF_LOW_FLOW_BASELINE_MARGIN_PCT,
     # tank refill leak
     CONF_TANK_LEAK_ENABLE,
     CONF_TANK_LEAK_MIN_REFILL_VOLUME,
@@ -39,6 +41,8 @@ from .const import (
     CONF_TANK_LEAK_WINDOW_S,
     CONF_TANK_LEAK_CLEAR_IDLE_S,
     CONF_TANK_LEAK_COOLDOWN_S,
+    CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
+    CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
 
 # Try to use HA selectors; fall back to plain types if not available
@@ -160,7 +164,8 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
             "select": {
                 "options": [
                     {"label": "Any non-zero flow (wall clock)", "value": COUNTING_MODE_NONZERO},
-                    {"label": "Only time within low-flow range", "value": COUNTING_MODE_IN_RANGE}
+                    {"label": "Only time within low-flow range", "value": COUNTING_MODE_IN_RANGE},
+                    {"label": "Baseline latch (with optional expected baseline)", "value": COUNTING_MODE_BASELINE_LATCH}
                 ],
                 "mode": "list"
             }
@@ -175,6 +180,8 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_LOW_FLOW_SMOOTHING_S, default=ex.get(CONF_LOW_FLOW_SMOOTHING_S, DEFAULTS[CONF_LOW_FLOW_SMOOTHING_S]))] = s_int(
         min_=0, step=1
     )
+    # Margin used by baseline_latch mode (safe to show always; ignored by other modes)
+    fields[vol.Required(CONF_LOW_FLOW_BASELINE_MARGIN_PCT, default=ex.get(CONF_LOW_FLOW_BASELINE_MARGIN_PCT, DEFAULTS[CONF_LOW_FLOW_BASELINE_MARGIN_PCT]))] = s_number(min_=0, step=0.5)
     fields[vol.Required(CONF_LOW_FLOW_COOLDOWN_S, default=ex.get(CONF_LOW_FLOW_COOLDOWN_S, DEFAULTS[CONF_LOW_FLOW_COOLDOWN_S]))] = s_int(
         min_=0, step=1
     )
@@ -229,6 +236,16 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         CONF_TANK_LEAK_COOLDOWN_S,
         default=ex.get(CONF_TANK_LEAK_COOLDOWN_S, DEFAULTS[CONF_TANK_LEAK_COOLDOWN_S])
     )] = s_int(min_=0, step=60)
+
+    # Optional duration gates (0 disables)
+    fields[vol.Required(
+        CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
+        default=ex.get(CONF_TANK_LEAK_MIN_REFILL_DURATION_S, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_DURATION_S])
+    )] = s_int(min_=0, step=1)
+    fields[vol.Required(
+        CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+        default=ex.get(CONF_TANK_LEAK_MAX_REFILL_DURATION_S, DEFAULTS[CONF_TANK_LEAK_MAX_REFILL_DURATION_S])
+    )] = s_int(min_=0, step=1)
 
     return vol.Schema(fields)
 
@@ -355,6 +372,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_LOW_FLOW_CLEAR_IDLE_S,
                 CONF_LOW_FLOW_COUNTING_MODE,
                 CONF_LOW_FLOW_SMOOTHING_S,
+                CONF_LOW_FLOW_BASELINE_MARGIN_PCT,
                 CONF_LOW_FLOW_COOLDOWN_S,
                 CONF_LOW_FLOW_CLEAR_ON_HIGH_S,
             ]
@@ -376,6 +394,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_TANK_LEAK_WINDOW_S,
                 CONF_TANK_LEAK_CLEAR_IDLE_S,
                 CONF_TANK_LEAK_COOLDOWN_S,
+                CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
+                CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
             ]
         }
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(defaults))

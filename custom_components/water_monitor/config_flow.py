@@ -226,7 +226,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._data: Dict[str, Any] = {}
+    self._data: Dict[str, Any] = {}
     self._low_flow_enabled = False
     self._tank_leak_enabled = False
 
@@ -264,8 +264,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
 
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(self._data))
-
-        return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(self._data))
 
     @staticmethod
     def async_get_options_flow(entry: config_entries.ConfigEntry):

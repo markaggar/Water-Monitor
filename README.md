@@ -1,6 +1,10 @@
+<img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/acbfb0a0-882a-4ad6-9ed6-f97f6c3c9194" />
+
 # Water Monitor
 
 A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
+
+<img width="1328" height="785" alt="image" src="https://github.com/user-attachments/assets/1f916c10-9b29-4190-a0c8-1846f4c6dea0" />
 
 ## Features
 
@@ -44,14 +48,9 @@ HACS
 - Add this repository in HACS as a Custom repository under Integrations (see repo URL).
 - Install “Water Monitor,” restart Home Assistant, and add the integration.
 
-Screenshots
-- Place screenshots in assets/screenshots and reference them here or in issues/PRs.
-  - assets/screenshots/setup_step1.png — initial setup
-  - assets/screenshots/low_flow_step.png — low-flow options
-  - assets/screenshots/tank_refill_step.png — tank refill options
-  - assets/screenshots/entities_created.png — created entities list
-
 ## Configuration
+
+<img width="502" height="938" alt="image" src="https://github.com/user-attachments/assets/9da5a4c4-6e68-4edc-8275-250867d11746" />
 
 Setup page (step 1)
 - Sensor Name Prefix
@@ -67,6 +66,8 @@ Setup page (step 1)
 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
 
+<img width="522" height="935" alt="image" src="https://github.com/user-attachments/assets/2f86f117-754a-47bb-8421-6d418cff6638" />
+
 Low-flow leak (step 2)
 - Max low-flow threshold (e.g., 0.5 GPM)
 - Seed low-flow duration (seconds)
@@ -76,6 +77,8 @@ Low-flow leak (step 2)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
+
+<img width="455" height="904" alt="image" src="https://github.com/user-attachments/assets/a372b30c-edda-4566-b33e-3060facfa654" />
 
 Tank refill leak (step 2)
 - Minimum refill volume (ignore refills smaller than this)
@@ -161,17 +164,6 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
   - Note: Attributes also include current and intermediate fields that reflect the tracker’s live state machine.
 
 ### Current session volume
-### Last session duration
-- State: last_session_duration (seconds)
-- Attributes: debug_state
-
-### Last session average flow
-- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
-- Attributes: volume_unit (inferred from source volume sensor), debug_state
-
-### Last session hot water percentage
-- State: last_session_hot_water_pct (%), rounded to 0.1
-- Attributes: debug_state
 - State: Live session volume while water is in use; during a gap, shows the intermediate (snapshot) volume; after finalization, resets to 0
 - Attributes (triaged to match the most relevant stage: current → intermediate → final):
   - session_stage: current | intermediate | final
@@ -187,6 +179,20 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
 Notes
 - The Current session volume sensor resets to 0 when a session ends, while keeping attributes that summarize the most relevant stage.
 - The Last session volume sensor’s state updates only after a session completes and passes thresholds.
+
+### Last session duration
+- State: last_session_duration (seconds)
+- Attributes: debug_state
+
+### Last session average flow
+- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
+- Attributes: volume_unit (inferred from source volume sensor), debug_state
+
+### Last session hot water percentage
+- State: last_session_hot_water_pct (%), rounded to 0.1
+- Attributes: debug_state
+
+## Leak Detector Sensors
 
 ### Low-flow leak basics
 - A low-flow baseline is established after a seed low-flow duration.
@@ -208,10 +214,6 @@ Tuning tips
 - Maximum refill volume: set just above a toilet refill to ignore showers/sprinklers; set 0 to disable the cap.
 - Similarity tolerance: start around 10%; increase if your meter reports variable volumes per flush.
 - Repeat count and window: choose how many similar refills within what time should indicate a leak (e.g., 3 within 15 minutes).
-
-### Hot water
-- Provide an optional binary sensor that reflects when hot water is active
-- Hot water time is accumulated during active sessions and summarized as a percentage
 
 ## Examples
 

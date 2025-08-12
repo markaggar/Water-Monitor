@@ -14,7 +14,30 @@
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
           "session_continuity_window": "Continuity window (seconds)",
-          "low_flow_enable": "Enable low-flow leak detection"
+          "low_flow_enable": "Enable low-flow leak detection",
+          "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank refill leak detection",
+        "description": "Trigger when several similar small refills occur within a short time — typical of a leaky toilet flapper.",
+        "data": {
+          "tank_refill_min_volume": "Minimum refill volume",
+          "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
+          "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
+          "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_window_s": "Window to count repeats (seconds)",
+          "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignore refills smaller than this.",
+          "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
+          "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
+          "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_window_s": "Time window to collect refills for comparison.",
+          "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing."
         }
       },
       "low_flow": {
@@ -53,7 +76,30 @@
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
           "session_continuity_window": "Continuity window (seconds)",
-          "low_flow_enable": "Enable low-flow leak detection"
+          "low_flow_enable": "Enable low-flow leak detection",
+          "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank refill leak detection options",
+        "description": "Adjust the thresholds for detecting repeated similar refills.",
+        "data": {
+          "tank_refill_min_volume": "Minimum refill volume",
+          "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
+          "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
+          "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_window_s": "Window to count repeats (seconds)",
+          "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignore refills smaller than this.",
+          "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
+          "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
+          "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_window_s": "Time window to collect refills for comparison.",
+          "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing."
         }
       },
       "low_flow": {

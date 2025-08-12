@@ -226,9 +226,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-    self._data: Dict[str, Any] = {}
-    self._low_flow_enabled = False
-    self._tank_leak_enabled = False
+        self._data: Dict[str, Any] = {}
+        self._low_flow_enabled = False
+        self._tank_leak_enabled = False
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         errors: Dict[str, str] = {}
@@ -276,8 +276,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
         self._entry = config_entry
         self._existing = {**config_entry.data, **config_entry.options}
         self._opts: Dict[str, Any] = {}
-    self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
-    self._tank_leak_enabled = bool(self._existing.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
+        self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
+        self._tank_leak_enabled = bool(self._existing.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
 
     @callback
     def _store(self):

@@ -1,6 +1,10 @@
 # Water Monitor
 
+<img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/f3bbd8f3-52f9-4676-b80b-fd601021192c" />
+
 A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
+
+<img width="929" height="834" alt="image" src="https://github.com/user-attachments/assets/f1261ea1-1b8c-43e2-8c8b-35d76ee14dcb" />
 
 ## Features
 
@@ -49,14 +53,10 @@ HACS
 - Add this repository in HACS as a Custom repository under Integrations (see repo URL).
 - Install “Water Monitor,” restart Home Assistant, and add the integration.
 
-Screenshots
-- Place screenshots in assets/screenshots and reference them here or in issues/PRs.
-  - assets/screenshots/setup_step1.png — initial setup
-  - assets/screenshots/low_flow_step.png — low-flow options
-  - assets/screenshots/tank_refill_step.png — tank refill options
-  - assets/screenshots/entities_created.png — created entities list
-
 ## Configuration
+
+<img width="442" height="933" alt="image" src="https://github.com/user-attachments/assets/a5574ac6-36b1-4285-ae49-e489f5b6f15b" />
+
 
 Setup page (step 1)
 - Sensor Name Prefix
@@ -72,6 +72,8 @@ Setup page (step 1)
 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
 
+<img width="536" height="927" alt="image" src="https://github.com/user-attachments/assets/c7aba8d1-521a-4920-a94a-f433eee32128" />
+
 Low-flow leak (step 2)
 - Max low-flow threshold (e.g., 0.5 GPM)
 - Seed low-flow duration (seconds)
@@ -82,6 +84,10 @@ Low-flow leak (step 2)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
+
+If “Create tank refill leak sensor” is checked, you’ll be presented with a third page:
+
+<img width="398" height="927" alt="image" src="https://github.com/user-attachments/assets/32682fa7-abdd-4539-9c59-3fba559725af" />
 
 Tank refill leak (step 2)
 - Minimum refill volume (ignore refills smaller than this)

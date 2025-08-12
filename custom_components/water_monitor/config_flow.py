@@ -109,8 +109,12 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_FLOW_SENSOR, default=ex.get(CONF_FLOW_SENSOR, ""))] = s_entity("sensor")
     fields[vol.Required(CONF_VOLUME_SENSOR, default=ex.get(CONF_VOLUME_SENSOR, ""))] = s_entity("sensor")
 
-    # Optional hot water sensor with no default so it can be blank
-    fields[vol.Optional(CONF_HOT_WATER_SENSOR)] = s_entity("binary_sensor")
+    # Optional hot water sensor; include default if present so reconfigure shows prior value
+    existing_hot = ex.get(CONF_HOT_WATER_SENSOR, None)
+    if existing_hot in (None, ""):
+        fields[vol.Optional(CONF_HOT_WATER_SENSOR)] = s_entity("binary_sensor")
+    else:
+        fields[vol.Optional(CONF_HOT_WATER_SENSOR, default=existing_hot)] = s_entity("binary_sensor")
 
     fields[vol.Required(CONF_MIN_SESSION_VOLUME, default=ex.get(CONF_MIN_SESSION_VOLUME, DEFAULTS[CONF_MIN_SESSION_VOLUME]))] = s_number(
         min_=0, step=0.01

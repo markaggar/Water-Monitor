@@ -1,5 +1,6 @@
 # Prompt template: Add a new sensor to an existing Home Assistant integration without breaking config or reconfig
 
+
 Copy/paste the block below to instruct an AI to implement a new sensor for an existing integration while preserving the current ConfigFlow/OptionsFlow behavior, reconfiguration, and device/entity stability. Below the prompt, keep the implementation notes and troubleshooting guidance learned from real deployments.
 
 — START OF PROMPT TO AI —
@@ -135,8 +136,6 @@ Variables to use
 - {ENABLE_OPTION_KEY} = "CONF_<FEATURE>_ENABLE"
 - {MANUFACTURER} = "markaggar"
 - {MODEL} = "Water Session Tracking and Leak Detection"
-
-— END OF PROMPT TO AI —
 
 # Implementation notes and checklist
 

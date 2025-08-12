@@ -1,15 +1,18 @@
 # Water Monitor
 
-A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional low-flow leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
+A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
 
 ## Features
 
 - Intelligent session detection
   - Automatically detects water usage sessions from flow/volume sensors
   - Smart gap handling and session continuation to avoid splitting single sessions
-- Dual sensors
-  - Last session volume: Shows the most recently completed session with metadata (rounded to 2 decimals)
+- Session sensors
+  - Last session volume: Most recently completed session with metadata (rounded to 2 decimals)
   - Current session volume: Real-time view during active use, shows the intermediate volume during gaps, and resets to 0 when a session ends (rounded to 2 decimals)
+  - Last session duration: Duration in seconds of the last completed session
+  - Last session average flow: Average flow rate of the last completed session (volume unit per minute)
+  - Last session hot water percentage: Hot water percentage of the last completed session
 - Hot water analytics
   - Tracks hot water time and percentage per session via an optional hot water binary sensor
 - Optional low-flow leak detector (binary sensor)
@@ -40,6 +43,13 @@ Manual installation
 HACS
 - Add this repository in HACS as a Custom repository under Integrations (see repo URL).
 - Install “Water Monitor,” restart Home Assistant, and add the integration.
+
+Screenshots
+- Place screenshots in assets/screenshots and reference them here or in issues/PRs.
+  - assets/screenshots/setup_step1.png — initial setup
+  - assets/screenshots/low_flow_step.png — low-flow options
+  - assets/screenshots/tank_refill_step.png — tank refill options
+  - assets/screenshots/entities_created.png — created entities list
 
 ## Configuration
 
@@ -85,6 +95,7 @@ Reconfiguration
 Units
 - Volume sensors determine unit display (gallons/liters) for both session sensors.
 - Flow sensor units are reflected in the low-flow leak sensor attributes.
+- Average flow sensor displays as <volume_unit>/min derived from the source volume unit.
 
 ## Sensors created
 
@@ -94,6 +105,15 @@ Units
 - Current session volume (sensor)
   - State: Live session volume; during gaps shows intermediate volume; after finalization resets to 0 (rounded to 2 decimals)
   - Attributes: session_stage, session_duration, session_average_flow, session_hot_water_pct, raw values
+- Last session duration (sensor)
+  - State: Seconds (integer) of the last completed session
+  - Attributes: debug_state
+- Last session average flow (sensor)
+  - State: Average flow of the last session; unit is <volume_unit>/min (rounded to 2 decimals)
+  - Attributes: volume_unit, debug_state
+- Last session hot water percentage (sensor)
+  - State: Percentage of hot water time in the last session (rounded to 0.1)
+  - Attributes: debug_state
 - Low-flow leak (binary_sensor, optional)
   - State: on/off (device_class: problem)
   - Latches across nonzero usage and clears only after true zero-flow for the configured duration
@@ -141,6 +161,17 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
   - Note: Attributes also include current and intermediate fields that reflect the tracker’s live state machine.
 
 ### Current session volume
+### Last session duration
+- State: last_session_duration (seconds)
+- Attributes: debug_state
+
+### Last session average flow
+- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
+- Attributes: volume_unit (inferred from source volume sensor), debug_state
+
+### Last session hot water percentage
+- State: last_session_hot_water_pct (%), rounded to 0.1
+- Attributes: debug_state
 - State: Live session volume while water is in use; during a gap, shows the intermediate (snapshot) volume; after finalization, resets to 0
 - Attributes (triaged to match the most relevant stage: current → intermediate → final):
   - session_stage: current | intermediate | final
@@ -213,6 +244,12 @@ entities:
     attribute: last_session_duration
   - entity: sensor.current_session_volume   # replace with your actual entity_id
     name: "Current Session Volume"
+  - entity: sensor.last_session_duration      # replace with your actual entity_id
+    name: "Last Session Duration"
+  - entity: sensor.last_session_average_flow  # replace with your actual entity_id
+    name: "Last Session Average Flow"
+  - entity: sensor.last_session_hot_water_percentage  # replace with your actual entity_id
+    name: "Last Session Hot Water %"
 
 # Optional binary sensors (if enabled)
   - entity: binary_sensor.water_monitor_tank_refill_leak   # example name
@@ -247,6 +284,7 @@ entities:
 ### No entities created
 - Ensure flow/volume sensors are set
 - If low-flow leak is enabled, make sure a flow sensor is selected
+ - Derived sensors (duration, average flow, hot water %) are created automatically and stay in sync with the last-session sensor.
 
 ### Low-flow leak not triggering
 - Reduce the max low-flow threshold or the seed/persistence durations

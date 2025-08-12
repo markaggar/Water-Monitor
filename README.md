@@ -1,3 +1,5 @@
+<img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/acbfb0a0-882a-4ad6-9ed6-f97f6c3c9194" />
+
 # Water Monitor
 
 <img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/f3bbd8f3-52f9-4676-b80b-fd601021192c" />
@@ -56,7 +58,6 @@ HACS
 ## Configuration
 
 <img width="442" height="933" alt="image" src="https://github.com/user-attachments/assets/a5574ac6-36b1-4285-ae49-e489f5b6f15b" />
-
 
 Setup page (step 1)
 - Sensor Name Prefix
@@ -187,17 +188,6 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
   - Note: Attributes also include current and intermediate fields that reflect the tracker’s live state machine.
 
 ### Current session volume
-### Last session duration
-- State: last_session_duration (seconds)
-- Attributes: debug_state
-
-### Last session average flow
-- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
-- Attributes: volume_unit (inferred from source volume sensor), debug_state
-
-### Last session hot water percentage
-- State: last_session_hot_water_pct (%), rounded to 0.1
-- Attributes: debug_state
 - State: Live session volume while water is in use; during a gap, shows the intermediate (snapshot) volume; after finalization, resets to 0
 - Attributes (triaged to match the most relevant stage: current → intermediate → final):
   - session_stage: current | intermediate | final
@@ -213,6 +203,20 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
 Notes
 - The Current session volume sensor resets to 0 when a session ends, while keeping attributes that summarize the most relevant stage.
 - The Last session volume sensor’s state updates only after a session completes and passes thresholds.
+
+### Last session duration
+- State: last_session_duration (seconds)
+- Attributes: debug_state
+
+### Last session average flow
+- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
+- Attributes: volume_unit (inferred from source volume sensor), debug_state
+
+### Last session hot water percentage
+- State: last_session_hot_water_pct (%), rounded to 0.1
+- Attributes: debug_state
+
+## Leak Detector Sensors
 
 ### Low-flow leak basics
 - Seeding: continuous low-flow must persist for the configured seed duration before counting begins (seed_s).
@@ -235,10 +239,6 @@ Tuning tips
 - Maximum refill volume: set just above a toilet refill to ignore showers/sprinklers; set 0 to disable the cap.
 - Similarity tolerance: start around 10%; increase if your meter reports variable volumes per flush.
 - Repeat count and window: choose how many similar refills within what time should indicate a leak (e.g., 3 within 15 minutes).
-
-### Hot water
-- Provide an optional binary sensor that reflects when hot water is active
-- Hot water time is accumulated during active sessions and summarized as a percentage
 
 ## Examples
 

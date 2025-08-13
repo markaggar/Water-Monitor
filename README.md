@@ -68,13 +68,9 @@ Setup page (step 1)
 - Continuity Window (seconds)
 - Treat baseline threshold as zero for session end (checkbox)
 - Baseline idle to close session (seconds)
-- Occupancy mode input_select (optional) and state labels:
-  - Occupancy mode input_select entity (e.g., input_select.location_mode)
-  - Away state label (default: Away)
-  - On Vacation state label (default: On Vacation)
-  - Returning from Vacation state label (default: Returning from Vacation)
 - Create Low-flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
+- Enable Intelligent Leak Detection (experimental) (checkbox)
 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
 
@@ -105,6 +101,18 @@ Tank refill leak (step 2)
 - Cooldown after clear (seconds) — optional suppression period before re-triggering
 - Minimum refill duration (seconds; 0 disables)
 - Maximum refill duration (seconds; 0 disables)
+
+If “Enable Intelligent Leak Detection” is checked, you’ll be presented with another page:
+
+Intelligent Leak Detection (experimental)
+- Occupancy mode input_select (optional)
+- Away states (comma-separated, optional)
+- Vacation states (comma-separated, optional)
+- Enable learning mode (toggle)
+
+Notes
+- CSV fields accept multiple labels separated by commas, e.g. "On Vacation, Returning from Vacation".
+- Learning mode is intended for future automation-assisted tuning; you can toggle it via Options or automations.
 
 Reconfiguration
 - Open Settings → Devices & Services → Water Monitor → Configure.

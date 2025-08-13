@@ -16,12 +16,19 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
-          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
-          "occupancy_state_away": "Away state label",
-          "occupancy_state_vacation": "On Vacation state label",
-          "occupancy_state_returning": "Returning from Vacation state label",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection",
+        "description": "Optional occupancy-aware settings and learning mode.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode"
         }
       },
       "tank_leak": {
@@ -89,12 +96,19 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
-          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
-          "occupancy_state_away": "Away state label",
-          "occupancy_state_vacation": "On Vacation state label",
-          "occupancy_state_returning": "Returning from Vacation state label",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection options",
+        "description": "Adjust occupancy-aware settings and learning mode.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode"
         }
       },
       "tank_leak": {

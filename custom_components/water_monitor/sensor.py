@@ -607,6 +607,13 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
         self._attr_available = self._upstream_available()
         vol_unit = state_data.get("volume_unit")
         flow_unit = state_data.get("flow_unit")
+        # If flow_unit wasn't propagated, try to resolve from the first tracked entity (the flow sensor)
+        if not flow_unit and getattr(self, "_tracked_entities", None):
+            flow_ent = self._tracked_entities[0] if self._tracked_entities else None
+            if flow_ent and self.hass is not None:
+                st = self.hass.states.get(flow_ent)
+                if st:
+                    flow_unit = st.attributes.get("unit_of_measurement")
 
         # Compute average using last session volume/duration and target flow unit when possible
         volume = float(state_data.get("last_session_volume", 0.0) or 0.0)
@@ -644,7 +651,7 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
                 if v_unit:
                     return (volume_val / dur_s) * 60.0, f"{v_unit}/min"
                 return (volume_val / dur_s) * 60.0, None
-            # No flow unit available; use volume/min convention
+            # No flow unit available; fall back to volume per minute
             if v_unit:
                 return (volume_val / dur_s) * 60.0, f"{v_unit}/min"
             return (volume_val / dur_s) * 60.0, None

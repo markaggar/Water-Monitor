@@ -1,7 +1,7 @@
 {
   "domain": "water_monitor",
   "name": "Water Monitor",
-  "version": "0.1.8",
+  "version": "0.2.2",
   "documentation": "https://github.com/markaggar/Water-Monitor",
   "issue_tracker": "https://github.com/markaggar/Water-Monitor/issues",
   "requirements": [],

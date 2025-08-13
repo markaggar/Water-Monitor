@@ -68,6 +68,11 @@ Setup page (step 1)
 - Continuity Window (seconds)
 - Treat baseline threshold as zero for session end (checkbox)
 - Baseline idle to close session (seconds)
+- Occupancy mode input_select (optional) and state labels:
+  - Occupancy mode input_select entity (e.g., input_select.location_mode)
+  - Away state label (default: Away)
+  - On Vacation state label (default: On Vacation)
+  - Returning from Vacation state label (default: Returning from Vacation)
 - Create Low-flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
 

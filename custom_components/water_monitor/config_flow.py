@@ -19,6 +19,11 @@ from .const import (
     CONF_SENSOR_PREFIX,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
+    # occupancy
+    CONF_OCC_MODE_ENTITY,
+    CONF_OCC_STATE_AWAY,
+    CONF_OCC_STATE_VACATION,
+    CONF_OCC_STATE_RETURNING,
     DEFAULTS,
     # low-flow
     CONF_LOW_FLOW_ENABLE,
@@ -137,6 +142,18 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     # Session boundary behavior
     fields[vol.Required(CONF_SESSIONS_USE_BASELINE_AS_ZERO, default=ex.get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, DEFAULTS[CONF_SESSIONS_USE_BASELINE_AS_ZERO]))] = s_bool()
     fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
+
+    # Occupancy mode (optional)
+    existing_occ = ex.get(CONF_OCC_MODE_ENTITY, None)
+    if existing_occ in (None, ""):
+        fields[vol.Optional(CONF_OCC_MODE_ENTITY)] = s_entity("input_select")
+    else:
+        fields[vol.Optional(CONF_OCC_MODE_ENTITY, default=existing_occ)] = s_entity("input_select")
+    # State labels (always have sensible defaults)
+    fields[vol.Required(CONF_OCC_STATE_AWAY, default=ex.get(CONF_OCC_STATE_AWAY, DEFAULTS[CONF_OCC_STATE_AWAY]))] = s_text()
+    fields[vol.Required(CONF_OCC_STATE_VACATION, default=ex.get(CONF_OCC_STATE_VACATION, DEFAULTS[CONF_OCC_STATE_VACATION]))] = s_text()
+    fields[vol.Required(CONF_OCC_STATE_RETURNING, default=ex.get(CONF_OCC_STATE_RETURNING, DEFAULTS[CONF_OCC_STATE_RETURNING]))] = s_text()
+
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
     fields[vol.Required(CONF_TANK_LEAK_ENABLE, default=ex.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))] = s_bool()
 
@@ -269,6 +286,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional occupancy mode entity
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
 
             self._data.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, False))
@@ -331,6 +351,9 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional occupancy mode entity
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
 
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
@@ -352,6 +375,11 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_MIN_SESSION_DURATION,
                 CONF_SESSION_GAP_TOLERANCE,
                 CONF_SESSION_CONTINUITY_WINDOW,
+                # Occupancy
+                CONF_OCC_MODE_ENTITY,
+                CONF_OCC_STATE_AWAY,
+                CONF_OCC_STATE_VACATION,
+                CONF_OCC_STATE_RETURNING,
                 CONF_LOW_FLOW_ENABLE,
                 CONF_TANK_LEAK_ENABLE,
             ]

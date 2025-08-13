@@ -16,6 +16,12 @@ CONF_SENSOR_PREFIX = "sensor_prefix"
 CONF_SESSIONS_USE_BASELINE_AS_ZERO = "sessions_use_baseline_as_zero"
 CONF_SESSIONS_IDLE_TO_CLOSE_S = "sessions_idle_to_close_s"
 
+# Occupancy mode (house-wide) configuration
+CONF_OCC_MODE_ENTITY = "occupancy_mode_entity"  # input_select or similar
+CONF_OCC_STATE_AWAY = "occupancy_state_away"
+CONF_OCC_STATE_VACATION = "occupancy_state_vacation"
+CONF_OCC_STATE_RETURNING = "occupancy_state_returning"
+
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
@@ -48,6 +54,11 @@ DEFAULTS = {
     # Session boundary behavior
     CONF_SESSIONS_USE_BASELINE_AS_ZERO: True,
     CONF_SESSIONS_IDLE_TO_CLOSE_S: 10,
+    # Occupancy mode defaults
+    CONF_OCC_MODE_ENTITY: "",
+    CONF_OCC_STATE_AWAY: "Away",
+    CONF_OCC_STATE_VACATION: "On Vacation",
+    CONF_OCC_STATE_RETURNING: "Returning from Vacation",
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

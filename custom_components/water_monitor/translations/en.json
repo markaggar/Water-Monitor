@@ -16,6 +16,10 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away state label",
+          "occupancy_state_vacation": "On Vacation state label",
+          "occupancy_state_returning": "Returning from Vacation state label",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
         }
@@ -85,6 +89,10 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away state label",
+          "occupancy_state_vacation": "On Vacation state label",
+          "occupancy_state_returning": "Returning from Vacation state label",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
         }

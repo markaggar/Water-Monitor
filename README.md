@@ -68,6 +68,8 @@ Setup page (step 1)
 - Minimum Session Duration (seconds)
 - Gap Tolerance (seconds)
 - Continuity Window (seconds)
+- Treat baseline threshold as zero for session end (checkbox)
+- Baseline idle to close session (seconds)
 - Create Low-flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
 
@@ -109,7 +111,7 @@ Reconfiguration
 
 Units
 - Volume sensors determine unit display (gallons/liters) for both session sensors.
-- Flow sensor units are reflected in the low-flow leak sensor attributes.
+- Flow sensor units are reflected in the low-flow leak sensor attributes and used for last-session average flow when possible.
 - Average flow sensor displays as <volume_unit>/min derived from the source volume unit.
 
 ## Sensors created

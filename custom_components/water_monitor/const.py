@@ -12,6 +12,10 @@ CONF_SESSION_GAP_TOLERANCE = "session_gap_tolerance"
 CONF_SESSION_CONTINUITY_WINDOW = "session_continuity_window"
 CONF_SENSOR_PREFIX = "sensor_prefix"
 
+# Session boundary behavior
+CONF_SESSIONS_USE_BASELINE_AS_ZERO = "sessions_use_baseline_as_zero"
+CONF_SESSIONS_IDLE_TO_CLOSE_S = "sessions_idle_to_close_s"
+
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
@@ -41,6 +45,9 @@ DEFAULTS = {
     CONF_SESSION_GAP_TOLERANCE: 5,
     CONF_SESSION_CONTINUITY_WINDOW: 3,
     CONF_SENSOR_PREFIX: "Water Monitor",
+    # Session boundary behavior
+    CONF_SESSIONS_USE_BASELINE_AS_ZERO: True,
+    CONF_SESSIONS_IDLE_TO_CLOSE_S: 10,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

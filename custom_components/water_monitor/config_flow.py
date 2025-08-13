@@ -17,6 +17,8 @@ from .const import (
     CONF_SESSION_GAP_TOLERANCE,
     CONF_SESSION_CONTINUITY_WINDOW,
     CONF_SENSOR_PREFIX,
+    CONF_SESSIONS_USE_BASELINE_AS_ZERO,
+    CONF_SESSIONS_IDLE_TO_CLOSE_S,
     DEFAULTS,
     # low-flow
     CONF_LOW_FLOW_ENABLE,
@@ -132,6 +134,9 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_SESSION_CONTINUITY_WINDOW, default=ex.get(CONF_SESSION_CONTINUITY_WINDOW, DEFAULTS[CONF_SESSION_CONTINUITY_WINDOW]))] = s_int(
         min_=0, step=1
     )
+    # Session boundary behavior
+    fields[vol.Required(CONF_SESSIONS_USE_BASELINE_AS_ZERO, default=ex.get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, DEFAULTS[CONF_SESSIONS_USE_BASELINE_AS_ZERO]))] = s_bool()
+    fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
     fields[vol.Required(CONF_TANK_LEAK_ENABLE, default=ex.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))] = s_bool()
 

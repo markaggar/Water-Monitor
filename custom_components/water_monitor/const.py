@@ -22,6 +22,10 @@ CONF_OCC_STATE_AWAY = "occupancy_state_away"
 CONF_OCC_STATE_VACATION = "occupancy_state_vacation"
 CONF_OCC_STATE_RETURNING = "occupancy_state_returning"
 
+# Intelligent Leak Detection (experimental)
+CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"
+CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"
+
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
@@ -56,9 +60,13 @@ DEFAULTS = {
     CONF_SESSIONS_IDLE_TO_CLOSE_S: 10,
     # Occupancy mode defaults
     CONF_OCC_MODE_ENTITY: "",
+    # Comma-delimited state lists (optional)
     CONF_OCC_STATE_AWAY: "Away",
-    CONF_OCC_STATE_VACATION: "On Vacation",
+    CONF_OCC_STATE_VACATION: "On Vacation, Returning from Vacation",
     CONF_OCC_STATE_RETURNING: "Returning from Vacation",
+    # Intelligent detector defaults
+    CONF_INTEL_DETECT_ENABLE: False,
+    CONF_INTEL_LEARNING_ENABLE: True,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

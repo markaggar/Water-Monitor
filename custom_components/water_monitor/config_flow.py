@@ -19,12 +19,10 @@ from .const import (
     CONF_SENSOR_PREFIX,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
-    # occupancy / intelligent
+    # occupancy (entity + CSVs)
     CONF_OCC_MODE_ENTITY,
     CONF_OCC_STATE_AWAY,
     CONF_OCC_STATE_VACATION,
-    CONF_INTEL_DETECT_ENABLE,
-    CONF_INTEL_LEARNING_ENABLE,
     DEFAULTS,
     # low-flow
     CONF_LOW_FLOW_ENABLE,
@@ -52,6 +50,14 @@ from .const import (
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
+
+# New intelligent detection constants were introduced recently; fall back to string keys
+# if running against an older const.py in a live HA instance.
+try:
+    from .const import CONF_INTEL_DETECT_ENABLE, CONF_INTEL_LEARNING_ENABLE  # type: ignore
+except Exception:  # pragma: no cover - compatibility with older installs
+    CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"  # type: ignore
+    CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"  # type: ignore
 
 # Try to use HA selectors; fall back to plain types if not available
 HAS_SELECTORS = True
@@ -145,7 +151,10 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
 
     # Experimental intelligent detection: separate page toggle
-    fields[vol.Required(CONF_INTEL_DETECT_ENABLE, default=ex.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS[CONF_INTEL_DETECT_ENABLE]))] = s_bool()
+    fields[vol.Required(
+        CONF_INTEL_DETECT_ENABLE,
+        default=ex.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)),
+    )] = s_bool()
 
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
     fields[vol.Required(CONF_TANK_LEAK_ENABLE, default=ex.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))] = s_bool()
@@ -285,7 +294,7 @@ def _intelligent_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema
 
     fields[vol.Required(
         CONF_INTEL_LEARNING_ENABLE,
-        default=ex.get(CONF_INTEL_LEARNING_ENABLE, DEFAULTS[CONF_INTEL_LEARNING_ENABLE])
+    default=ex.get(CONF_INTEL_LEARNING_ENABLE, DEFAULTS.get(CONF_INTEL_LEARNING_ENABLE, True))
     )] = s_bool()
 
     return vol.Schema(fields)
@@ -381,7 +390,9 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
         self._opts: Dict[str, Any] = {}
         self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
         self._tank_leak_enabled = bool(self._existing.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
-        self._intel_enabled = bool(self._existing.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS[CONF_INTEL_DETECT_ENABLE]))
+        self._intel_enabled = bool(
+            self._existing.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False))
+        )
 
     @callback
     def _store(self):
@@ -399,7 +410,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
             self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
-            self._intel_enabled = bool(user_input.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS[CONF_INTEL_DETECT_ENABLE]))
+            self._intel_enabled = bool(user_input.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)))
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
             if self._tank_leak_enabled:

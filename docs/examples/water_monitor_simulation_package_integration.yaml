@@ -1,0 +1,80 @@
+# Alternative package using Integration sensor for volume (no tick automation needed)
+# Place under config/packages/ and include_dir_named from configuration.yaml
+
+input_number:
+  water_test_flow_gpm:
+    name: Water Test Flow (gpm)
+    min: 0
+    max: 10
+    step: 0.1
+
+sensor:
+  - platform: template
+    sensors:
+      water_test_flow:
+        friendly_name: "Water Test Flow"
+        unit_of_measurement: "gpm"
+        value_template: "{{ states('input_number.water_test_flow_gpm') | float(0) }}"
+  - platform: integration
+    source: sensor.water_test_flow
+    name: Water Test Volume (integrated)
+    unit_time: min
+    method: trapezoidal
+    round: 3
+
+script:
+  sim_flow_stop:
+    alias: Stop Simulated Flow
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.water_test_flow_gpm
+
+  sim_leak_start:
+    alias: Start Simulated Leak (0.2 gpm for 20 min)
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0.2
+        target:
+          entity_id: input_number.water_test_flow_gpm
+      - delay: "00:20:00"
+      - service: script.sim_flow_stop
+
+  sim_normal_shower:
+    alias: Simulate Normal Shower (2.2 gpm for 8 min)
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 2.2
+        target:
+          entity_id: input_number.water_test_flow_gpm
+      - delay: "00:08:00"
+      - service: script.sim_flow_stop
+
+  sim_seed_baselines:
+    alias: Seed Water Monitor Baselines (14 days)
+    sequence:
+      - service: water_monitor.simulate_history
+        data:
+          days: 14
+          include_irrigation: true
+
+automation:
+  - id: water_monitor_sim_log_on_update_integ
+    alias: Log Intelligent Leak Attributes (Integration volume)
+    mode: queued
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.water_monitor_intelligent_leak
+    action:
+      - variables:
+          attrs: "{{ state_attr('binary_sensor.water_monitor_intelligent_leak', 'friendly_name') }} | ready={{ state_attr('binary_sensor.water_monitor_intelligent_leak','baseline_ready') }} p={{ state_attr('binary_sensor.water_monitor_intelligent_leak','chosen_percentile') }} thr_s={{ state_attr('binary_sensor.water_monitor_intelligent_leak','effective_threshold_s') }} risk={{ state_attr('binary_sensor.water_monitor_intelligent_leak','risk') }} reasons={{ state_attr('binary_sensor.water_monitor_intelligent_leak','reasons') }}"
+      - service: system_log.write
+        data:
+          level: info
+          message: "Intelligent Leak Update: {{ attrs }}"

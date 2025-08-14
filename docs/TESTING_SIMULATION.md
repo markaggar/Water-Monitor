@@ -50,8 +50,29 @@ Then configure the Water Monitor integration to use:
 - Volume sensor: `sensor.water_test_volume`
 - Hot water sensor: leave blank (optional)
 
+### Alternative (recommended): Integration sensor for volume
+Instead of manually ticking volume, create an Integration sensor that converts flow (gpm) into cumulative volume (gal). This is simpler and more realistic, and works perfectly with the integration’s session tracking (it subtracts the starting total per session).
+
+Add this sensor:
+
+```yaml
+sensor:
+  - platform: integration
+    source: sensor.water_test_flow
+    name: Water Test Volume (integrated)
+    unit_time: min     # flow is in gallons per minute
+    method: trapezoidal
+    round: 3
+```
+
+Then use:
+- Flow sensor: `sensor.water_test_flow`
+- Volume sensor: `sensor.water_test_volume_integrated`
+
+With this approach, you don’t need the per-second tick script or daemon; set the flow to a value, wait, then set it back to zero to simulate sessions/leaks. The Integration sensor will accumulate volume automatically.
+
 ## 3) Scripts to simulate sessions and leaks
-Add scripts that “tick” the volume based on flow once per second.
+Add scripts that “tick” the volume based on flow once per second. If you use the Integration sensor approach above, you can skip this section and instead create simple scripts that set flow for a duration and then stop.
 
 ```yaml
 script:

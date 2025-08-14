@@ -1,0 +1,11 @@
+analyze_yesterday:
+  name: Analyze yesterday
+  description: Run the daily analysis immediately for yesterday.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional. If provided, runs analysis only for this config entry; otherwise runs for all loaded entries.
+      required: false
+      example: "abc123def456"
+      selector:
+        text:

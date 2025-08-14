@@ -30,6 +30,8 @@ from .const import (
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
 )
+from .const import tracker_signal
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .water_session_tracker import WaterSessionTracker
 from .engine import WaterMonitorEngine
 
@@ -113,6 +115,8 @@ async def async_setup_entry(
             engine: WaterMonitorEngine | None = data.get("engine") if data else None
             if engine:
                 await engine.ingest_state(state)
+            # Broadcast live tracker state for other entities (e.g., intelligent leak)
+            async_dispatcher_send(hass, tracker_signal(config_entry.entry_id), state)
         except Exception:
             pass
 

@@ -115,3 +115,8 @@ DEFAULTS.update({
 def engine_signal(entry_id: str) -> str:
     """Return the dispatcher signal name for engine updates for a given entry."""
     return f"{DOMAIN}_engine_updated_{entry_id}"
+
+
+def tracker_signal(entry_id: str) -> str:
+    """Return the dispatcher signal name carrying live tracker state updates."""
+    return f"{DOMAIN}_tracker_state_{entry_id}"

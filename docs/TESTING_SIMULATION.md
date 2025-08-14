@@ -53,7 +53,7 @@ Then configure the Water Monitor integration to use:
 ### Alternative (recommended): Integration sensor for volume
 Instead of manually ticking volume, create an Integration sensor that converts flow (gpm) into cumulative volume (gal). This is simpler and more realistic, and works perfectly with the integration’s session tracking (it subtracts the starting total per session).
 
-Add this sensor:
+Add this sensor (use Left Riemann to avoid jumps):
 
 ```yaml
 sensor:
@@ -61,7 +61,7 @@ sensor:
     source: sensor.water_test_flow
     name: Water Test Volume (integrated)
     unit_time: min     # flow is in gallons per minute
-    method: trapezoidal
+    method: left       # left Riemann sum avoids trapezoidal spikes
     round: 3
 ```
 

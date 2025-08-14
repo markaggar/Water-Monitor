@@ -19,7 +19,7 @@ sensor:
     source: sensor.water_test_flow
     name: Water Test Volume (integrated)
     unit_time: min
-    method: trapezoidal
+    method: left
     round: 3
 
 script:

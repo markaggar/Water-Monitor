@@ -281,10 +281,14 @@ class WaterSessionSensor(SensorEntity):
         session_active = state_data.get("current_session_active", False)
         flow_rate = state_data.get("flow_sensor_value", 0.0)
 
+        # Always tick during an active session so duration/metrics progress
+        if session_active:
+            return True, "active session timing"
         if gap_active:
             return True, "gap monitoring"
-        if session_active and flow_rate == 0 and not gap_active:
-            return True, "session continuation monitoring"
+        if flow_rate == 0 and not gap_active:
+            # continuation/idle timing when not in a session
+            return True, "idle timing"
         return False, "no timing operations needed"
 
     async def _async_update_from_sensors(self) -> None:

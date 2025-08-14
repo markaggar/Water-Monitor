@@ -236,6 +236,7 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         self._attr_extra_state_attributes = {}
         self._unsub = None
         self._last_eval_ts: Optional[datetime] = None
+    self._sensitivity_entity_id = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -253,6 +254,16 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         sig = tracker_signal(self._entry.entry_id)
         self._unsub = async_dispatcher_connect(self.hass, sig, self._on_tracker_update)
         self._attr_available = True
+        # Resolve the Leak alert sensitivity number entity_id by unique_id
+        try:
+            reg = er.async_get(self.hass)
+            target_uid = f"{self._entry.entry_id}_leak_sensitivity"
+            for ent in er.async_entries_for_config_entry(reg, self._entry.entry_id):
+                if ent.unique_id == target_uid and ent.domain == "number":
+                    self._sensitivity_entity_id = ent.entity_id
+                    break
+        except Exception:
+            self._sensitivity_entity_id = None
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -271,6 +282,34 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
     def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
         local = now.astimezone()
         return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
+
+    def _get_sensitivity(self) -> float:
+        """Read user sensitivity (0-100), default 50 when unavailable."""
+        try:
+            if self._sensitivity_entity_id:
+                st = self.hass.states.get(self._sensitivity_entity_id)
+                if st and st.state not in (None, "unknown", "unavailable"):
+                    val = float(st.state)
+                    return max(0.0, min(100.0, val))
+        except Exception:
+            pass
+        return 50.0
+
+    def _percentile_from_sensitivity(self, s: float) -> float:
+        """Map 0..100 to 99..90 (linear), with 50 -> ~95."""
+        s = max(0.0, min(100.0, s))
+        return 99.0 - 0.09 * s
+
+    def _interpolate_threshold(self, p90: float, p95: float, p99: float, target_p: float) -> float:
+        target_p = max(90.0, min(99.0, target_p))
+        if target_p <= 95.0:
+            # Map 90..95 onto p90..p95
+            t = (target_p - 90.0) / 5.0
+            return p90 + t * max(0.0, p95 - p90)
+        else:
+            # Map 95..99 onto p95..p99
+            t = (target_p - 95.0) / 4.0
+            return p95 + t * max(0.0, p99 - p95)
 
     @callback
     def _on_tracker_update(self, state: dict) -> None:
@@ -311,30 +350,47 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 "p99": 0.0,
                 "level": 99,
             }
-
-            # Risk: primary on duration exceeding p95; stronger above p99
+            # Compute chosen percentile from sensitivity
+            sensitivity = self._get_sensitivity()
+            chosen_p = self._percentile_from_sensitivity(sensitivity)
+            p90 = float(stats.get("p90", 0.0) or 0.0)
             p95 = float(stats.get("p95", 0.0) or 0.0)
             p99 = float(stats.get("p99", 0.0) or 0.0)
             count = int(stats.get("count", 0) or 0)
             bucket = stats.get("bucket")
+            occ_class = stats.get("occ_class") or "home"
 
-            risk = 0.0
-            reasons = []
+            # Build effective threshold
             baseline_ready = count >= 10
-            if baseline_ready:
-                if p95 > 0 and elapsed > p95:
-                    over = (elapsed - p95) / max(1.0, p95)
-                    risk += 0.7 + min(0.6, over)  # up to 1.3
-                    reasons.append("elapsed>p95")
-                if p99 > 0 and elapsed > p99:
-                    over2 = (elapsed - p99) / max(1.0, p99)
-                    risk += 0.6 + min(0.6, over2)
-                    reasons.append("elapsed>p99")
+            if baseline_ready and (p90 > 0.0 or p95 > 0.0 or p99 > 0.0):
+                base_threshold = self._interpolate_threshold(p90, p95, p99, chosen_p)
             else:
-                # No baseline -> be conservative, require long elapsed
-                if elapsed >= 30 * 60:  # 30 minutes
-                    risk = 1.0
-                    reasons.append("elapsed>=30min_no_baseline")
+                base_threshold = 0.0
+
+            # Sparse-data fallback floor (minutes -> seconds)
+            fallback_min_minutes = 45.0 - (25.0 * (sensitivity / 100.0))  # 45 at 0, ~32.5 at 50, 20 at 100
+            fallback_floor_s = max(5.0 * 60.0, fallback_min_minutes * 60.0)
+
+            # Apply policy floors/adjustments
+            effective_threshold = base_threshold if base_threshold > 0 else fallback_floor_s
+            if occ_class == "vacation":
+                effective_threshold = max(effective_threshold, 45.0 * 60.0)
+            elif occ_class == "away":
+                effective_threshold = max(effective_threshold, 35.0 * 60.0)
+            elif occ_class == "night":
+                # tighten a bit at night but don’t go below 10 min to avoid over-aggression
+                effective_threshold = max(effective_threshold * 0.85, 10.0 * 60.0)
+
+            # Risk: scale by ratio to effective threshold
+            reasons = []
+            if elapsed > 0 and effective_threshold > 0:
+                risk = elapsed / effective_threshold
+                if baseline_ready:
+                    reasons.append("elapsed>p{:.1f}".format(chosen_p))
+                else:
+                    reasons.append("fallback_floor")
+            else:
+                risk = 0.0
 
             # Slightly increase risk if flow is very low but persistent (drip leaks)
             if 0.0 < flow_now <= 0.3 and elapsed >= 10 * 60:
@@ -348,8 +404,14 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 "baseline_ready": baseline_ready,
                 "bucket_used": bucket,
                 "count": count,
+                "p90": p90,
                 "p95": p95,
                 "p99": p99,
+                "sensitivity_setting": sensitivity,
+                "chosen_percentile": round(chosen_p, 1),
+                "effective_threshold_s": round(effective_threshold, 1),
+                "fallback_elapsed_floor_s": round(fallback_floor_s, 1),
+                "policy_context": occ_class,
                 "elapsed_s": elapsed,
                 "avg_flow": round(avg_flow, 2),
                 "hot_pct": round(hot_pct, 1),

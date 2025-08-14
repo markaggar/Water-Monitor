@@ -238,6 +238,9 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         # Last evaluation timestamp; set during tracker callbacks
         self._last_eval_ts = None
         self._sensitivity_entity_id = None
+    # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
+    self._flow_active_start = None
+    self._last_flow_now = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -323,17 +326,16 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
             avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
             hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
             flow_now = float(state.get("flow_sensor_value", 0.0) or 0.0)
+            # Maintain independent wall-clock elapsed while flow > 0
+            if flow_now > 0.0:
+                if self._flow_active_start is None:
+                    self._flow_active_start = now
+            else:
+                self._flow_active_start = None
+            flow_elapsed = int((now - self._flow_active_start).total_seconds()) if self._flow_active_start else 0
 
-            # Only evaluate risk during a session with some elapsed time
-            if not active or elapsed <= 0:
-                # If not active, auto-clear after some idle
-                if self._attr_is_on:
-                    self._attr_is_on = False
-                    self._attr_extra_state_attributes.update({
-                        "reason": "no_active_session",
-                    })
-                self.async_write_ha_state()
-                return
+            # Choose elapsed for risk: prefer session elapsed, else fall back to wall-clock under flow
+            eff_elapsed = elapsed if (active and elapsed > 0) else flow_elapsed
 
             # Fetch context-aware baseline for current hour/day_type and occupancy/person context
             eng = self._get_engine()
@@ -384,8 +386,8 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
 
             # Risk: scale by ratio to effective threshold
             reasons = []
-            if elapsed > 0 and effective_threshold > 0:
-                risk = elapsed / effective_threshold
+            if eff_elapsed > 0 and effective_threshold > 0:
+                risk = eff_elapsed / effective_threshold
                 if baseline_ready:
                     reasons.append("elapsed>p{:.1f}".format(chosen_p))
                 else:
@@ -413,7 +415,7 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 "effective_threshold_s": round(effective_threshold, 1),
                 "fallback_elapsed_floor_s": round(fallback_floor_s, 1),
                 "policy_context": occ_class,
-                "elapsed_s": elapsed,
+                "elapsed_s": eff_elapsed,
                 "avg_flow": round(avg_flow, 2),
                 "hot_pct": round(hot_pct, 1),
                 "flow_now": flow_now,

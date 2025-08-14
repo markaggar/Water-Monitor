@@ -1,0 +1,11 @@
+#!/usr/bin/env pwsh
+# Pre-push hook: deploy the water_monitor files to HA share after a successful push
+# Requires PowerShell and access to \\10.0.0.55\config
+
+try {
+  & scripts/deploy-water-monitor.ps1
+} catch {
+  # Don't block push on deploy errors
+  exit 0
+}
+exit 0

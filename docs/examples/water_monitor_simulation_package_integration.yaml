@@ -8,15 +8,24 @@ input_number:
     max: 10
     step: 0.1
 
-sensor:
-  - platform: template
-    sensors:
-      water_test_flow:
-        friendly_name: "Water Test Flow"
+template:
+  - trigger:
+      - platform: time_pattern
+        seconds: "/1"
+      - platform: state
+        entity_id: input_number.water_test_flow_gpm
+    sensor:
+      - name: Water Test Flow Sampled
+        unique_id: water_test_flow_sampled
+        state: "{{ states('input_number.water_test_flow_gpm')|float(0) }}"
         unit_of_measurement: "gpm"
-        value_template: "{{ states('input_number.water_test_flow_gpm') | float(0) }}"
+        state_class: measurement
+        attributes:
+          last_sample: "{{ now().isoformat() }}"
+
+sensor:
   - platform: integration
-    source: sensor.water_test_flow
+    source: sensor.water_test_flow_sampled
     name: Water Test Volume (integrated)
     unit_time: min
     method: left

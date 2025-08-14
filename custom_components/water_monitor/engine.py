@@ -37,6 +37,10 @@ class SessionRecord:
     avg_flow: float
     hot_pct: float
     gaps: int = 0
+    # Context at (approx) end time
+    occ_raw: Optional[str] = None
+    occ_class: Optional[str] = None  # home | away | vacation | night
+    people_bin: Optional[str] = None  # '0' | '1' | '2-3' | '4+'
 
 
 @dataclass
@@ -46,6 +50,8 @@ class EngineState:
     # Simple long-horizon stats for duration/flow by (hour, day_type)
     # Structure: {"H|D": {"durations": [int], "flows": [float], "count": int, "last_updated": iso}}
     hourly_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Context-aware stats: (hour|day_type|occ_class|people_bin)
+    context_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 class WaterMonitorEngine:
@@ -91,6 +97,7 @@ class WaterMonitorEngine:
             self._state.sessions = sessions
             self._state.daily = data.get("daily", {})
             self._state.hourly_stats = data.get("hourly_stats", {})
+            self._state.context_stats = data.get("context_stats", {})
         except Exception as e:
             _LOGGER.warning("Engine state load failed: %s", e)
 
@@ -100,6 +107,7 @@ class WaterMonitorEngine:
                 "sessions": [rec.__dict__ for rec in self._state.sessions],
                 "daily": self._state.daily,
                 "hourly_stats": self._state.hourly_stats,
+                "context_stats": self._state.context_stats,
             }
             await self._store.async_save(data)
         except Exception as e:
@@ -126,7 +134,12 @@ class WaterMonitorEngine:
         avg = float(state.get("last_session_average_flow", 0.0) or 0.0)
         hot_pct = float(state.get("last_session_hot_water_pct", 0.0) or 0.0)
         gaps = int(state.get("last_session_gapped_sessions", 0) or 0)
-        ended_at = datetime.now(timezone.utc).isoformat()
+
+        now_utc = datetime.now(timezone.utc)
+        ended_at = now_utc.isoformat()
+
+        # Classify context at end time
+        occ_raw, occ_class, people_bin = self._classify_context(now_utc)
 
         rec = SessionRecord(
             ended_at=ended_at,
@@ -135,6 +148,9 @@ class WaterMonitorEngine:
             avg_flow=round(avg, 6),
             hot_pct=round(hot_pct, 2),
             gaps=gaps,
+            occ_raw=occ_raw,
+            occ_class=occ_class,
+            people_bin=people_bin,
         )
         self._state.sessions.append(rec)
         # Keep storage bounded (e.g., last 180 days sessions)
@@ -144,9 +160,11 @@ class WaterMonitorEngine:
         try:
             dt = datetime.fromisoformat(ended_at)
         except Exception:
-            dt = datetime.now(timezone.utc)
+            dt = now_utc
         hour, day_type = self._local_hour_and_daytype(dt)
         self._update_hourly_stats(hour, day_type, rec.duration_s, rec.avg_flow)
+        # Update context-aware stats
+        self._update_context_stats(hour, day_type, occ_class, people_bin, rec.duration_s, rec.avg_flow)
         await self._save()
         # Notify interested entities
         async_dispatcher_send(self.hass, engine_signal(self.entry_id), {
@@ -261,6 +279,35 @@ class WaterMonitorEngine:
         slot["count"] = len(slot["durations"])  # simple count
         slot["last_updated"] = datetime.now(timezone.utc).isoformat()
 
+    def _ctx_key(self, hour: int, day_type: str, occ_class: str, people_bin: str) -> str:
+        return f"{hour}|{day_type}|{occ_class}|{people_bin}"
+
+    def _update_context_stats(
+        self,
+        hour: int,
+        day_type: str,
+        occ_class: Optional[str],
+        people_bin: Optional[str],
+        duration_s: int,
+        avg_flow: float,
+    ) -> None:
+        oc = occ_class or "unknown"
+        pb = people_bin or "?"
+        key = self._ctx_key(hour, day_type, oc, pb)
+        slot = self._state.context_stats.setdefault(key, {"durations": [], "flows": [], "count": 0, "last_updated": None})
+        slot["durations"].append(int(duration_s))
+        if len(slot["durations"]) > 200:
+            slot["durations"] = slot["durations"][-200:]
+        try:
+            f = float(avg_flow)
+        except Exception:
+            f = 0.0
+        slot["flows"].append(f)
+        if len(slot["flows"]) > 200:
+            slot["flows"] = slot["flows"][-200:]
+        slot["count"] = len(slot["durations"])  # simple count
+        slot["last_updated"] = datetime.now(timezone.utc).isoformat()
+
     def _percentile(self, data: List[float] | List[int], pct: float) -> float:
         if not data:
             return 0.0
@@ -320,3 +367,205 @@ class WaterMonitorEngine:
         st["bucket"] = "*"
         st["level"] = 3
         return st
+
+    def get_context_bucket_stats(
+        self,
+        hour: int,
+        day_type: str,
+        occ_class: Optional[str],
+        people_bin: Optional[str],
+    ) -> Dict[str, Any]:
+        """Return context-aware stats with fallback ladder.
+
+        Ladder:
+        1) hour|day_type|occ_class|people_bin
+        2) hour|day_type|occ_class|*
+        3) hour|day_type
+        4) hour
+        5) global
+        """
+
+        def make_stats(durations: List[int], bucket: str, level: int) -> Dict[str, Any]:
+            return {
+                "bucket": bucket,
+                "level": level,
+                "count": len(durations),
+                "p50": round(self._percentile(durations, 50), 1),
+                "p90": round(self._percentile(durations, 90), 1),
+                "p95": round(self._percentile(durations, 95), 1),
+                "p99": round(self._percentile(durations, 99), 1),
+            }
+
+        oc = (occ_class or "unknown")
+        pb = (people_bin or "?")
+        # 1: exact
+        key = self._ctx_key(hour, day_type, oc, pb)
+        slot = self._state.context_stats.get(key)
+        if slot and slot.get("durations"):
+            d = [int(x) for x in slot["durations"] if isinstance(x, (int, float))]
+            return make_stats(d, key, 1)
+        # 2: wildcard people_bin
+        merged: List[int] = []
+        for bin_opt in ("0", "1", "2-3", "4+", "?"):
+            s = self._state.context_stats.get(self._ctx_key(hour, day_type, oc, bin_opt))
+            if s and s.get("durations"):
+                merged.extend(int(x) for x in s["durations"] if isinstance(x, (int, float)))
+        if merged:
+            return make_stats(merged, f"{hour}|{day_type}|{oc}|*", 2)
+        # 3/4/5: fall back to simpler ladders
+        st = self.get_simple_bucket_stats(hour, day_type)
+        st["level"] = max(3, int(st.get("level", 3)))
+        return st
+
+    # -------------------------
+    # Context classification helpers
+    # -------------------------
+    def _split_states(self, value: Optional[str]) -> List[str]:
+        if not value:
+            return []
+        return [s.strip() for s in str(value).split(",") if s.strip()]
+
+    def _classify_context(self, dt_utc: datetime) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Return (occupancy_raw, occupancy_class, people_bin) for a given time."""
+        try:
+            local = dt_utc.astimezone()
+        except Exception:
+            local = datetime.now().astimezone()
+        hour = local.hour
+
+        occ_ent = str(self._config.get(CONF_OCC_MODE_ENTITY) or "")
+        occ_raw = None
+        if occ_ent:
+            st = self.hass.states.get(occ_ent)
+            if st and st.state not in (None, "unknown", "unavailable"):
+                occ_raw = str(st.state)
+
+        away_list = self._split_states(self._config.get(CONF_OCC_STATE_AWAY))
+        vac_list = self._split_states(self._config.get(CONF_OCC_STATE_VACATION))
+        if occ_raw and occ_raw in vac_list:
+            occ_class = "vacation"
+        elif occ_raw and occ_raw in away_list:
+            occ_class = "away"
+        else:
+            # Simple night heuristic: 0-5 local hours considered night
+            if 0 <= hour <= 5:
+                occ_class = "night"
+            else:
+                occ_class = "home"
+
+        # Count people.* at home
+        people_home = 0
+        try:
+            for eid, st in self.hass.states.async_all("person"):
+                pass  # incorrect API, fallback below
+        except Exception:
+            pass
+        # Use states list in hass
+        try:
+            for st in self.hass.states.async_all():
+                if st.domain == "person" and str(st.state).lower() == "home":
+                    people_home += 1
+        except Exception:
+            # Very defensive
+            pass
+
+        if people_home <= 0:
+            people_bin = "0"
+        elif people_home == 1:
+            people_bin = "1"
+        elif 2 <= people_home <= 3:
+            people_bin = "2-3"
+        else:
+            people_bin = "4+"
+
+        return occ_raw, occ_class, people_bin
+
+    def get_context_stats_for_now(self) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        hour, day_type = self._local_hour_and_daytype(now)
+        occ_raw, occ_class, people_bin = self._classify_context(now)
+        stats = self.get_context_bucket_stats(hour, day_type, occ_class, people_bin)
+        stats.update({
+            "occ_raw": occ_raw,
+            "occ_class": occ_class,
+            "people_bin": people_bin,
+            "hour": hour,
+            "day_type": day_type,
+        })
+        return stats
+
+    # -------------------------
+    # Simulation tooling (to accelerate baseline creation)
+    # -------------------------
+    async def simulate_history(self, days: int = 14, seed: Optional[int] = None, include_irrigation: bool = True) -> Dict[str, Any]:
+        import random
+        if seed is not None:
+            random.seed(int(seed))
+        created = 0
+        now_local = datetime.now().astimezone()
+
+        def add_session(dt_local: datetime, duration: int, avg_flow: float, hot_pct: float):
+            nonlocal created
+            dt_utc = dt_local.astimezone(timezone.utc)
+            occ_raw, occ_class, people_bin = self._classify_context(dt_utc)
+            rec = SessionRecord(
+                ended_at=dt_utc.isoformat(),
+                volume=round((avg_flow / 60.0) * max(1, duration), 3),
+                duration_s=int(duration),
+                avg_flow=float(avg_flow),
+                hot_pct=round(hot_pct, 1),
+                gaps=0,
+                occ_raw=occ_raw,
+                occ_class=occ_class,
+                people_bin=people_bin,
+            )
+            self._state.sessions.append(rec)
+            # Update stats
+            h, dty = self._local_hour_and_daytype(dt_utc)
+            self._update_hourly_stats(h, dty, rec.duration_s, rec.avg_flow)
+            self._update_context_stats(h, dty, occ_class, people_bin, rec.duration_s, rec.avg_flow)
+            created += 1
+
+        for d in range(days, 0, -1):
+            base_day = (now_local - timedelta(days=d)).replace(minute=0, second=0, microsecond=0)
+            dow = base_day.weekday()
+            # Morning showers (1-3)
+            for _ in range(random.randint(1, 3)):
+                hr = random.choice([6, 7, 8])
+                dur = random.randint(300, 600)  # 5-10 min
+                flow = random.uniform(1.5, 2.5)
+                hot = random.uniform(40.0, 80.0)
+                add_session(base_day.replace(hour=hr) + timedelta(minutes=random.randint(0, 50)), dur, flow, hot)
+            # Handwashing (3-10)
+            for _ in range(random.randint(3, 10)):
+                hr = random.randint(7, 22)
+                dur = random.randint(10, 40)
+                flow = random.uniform(0.2, 0.8)
+                hot = random.uniform(0.0, 40.0)
+                add_session(base_day.replace(hour=hr) + timedelta(minutes=random.randint(0, 59)), dur, flow, hot)
+            # Dishwasher (0-1)
+            if random.random() < 0.6:
+                hr = random.choice([20, 21, 22])
+                dur = random.randint(1800, 3600)
+                flow = random.uniform(0.8, 1.4)
+                hot = random.uniform(30.0, 70.0)
+                add_session(base_day.replace(hour=hr) + timedelta(minutes=random.randint(0, 40)), dur, flow, hot)
+            # Irrigation (alternate days at ~5am)
+            if include_irrigation and (dow % 2 == 0):
+                hr = 5
+                dur = random.randint(900, 1800)
+                flow = random.uniform(1.5, 3.0)
+                hot = 0.0
+                add_session(base_day.replace(hour=hr) + timedelta(minutes=random.randint(-10, 10)), dur, flow, hot)
+
+        # Bound session list size
+        if len(self._state.sessions) > 5000:
+            self._state.sessions = self._state.sessions[-5000:]
+        await self._save()
+        # Notify that data changed
+        async_dispatcher_send(self.hass, engine_signal(self.entry_id), {
+            "type": "ingest",
+            "event": "simulation_added",
+            "created": created,
+        })
+        return {"created": created}

@@ -9,3 +9,39 @@ analyze_yesterday:
       example: "abc123def456"
       selector:
         text:
+
+simulate_history:
+  name: Simulate history
+  description: Generate synthetic sessions to accelerate baseline learning.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional. If provided, simulates only for this config entry; otherwise runs for all loaded entries.
+      required: false
+      example: "abc123def456"
+      selector:
+        text:
+    days:
+      name: Days
+      description: Number of days of history to simulate (approximate distribution across each day).
+      required: false
+      default: 14
+      selector:
+        number:
+          min: 1
+          max: 90
+          mode: box
+          unit_of_measurement: days
+    seed:
+      name: Seed
+      description: Optional random seed for reproducibility.
+      required: false
+      selector:
+        text:
+    include_irrigation:
+      name: Include irrigation
+      description: Include alternate-day early-morning irrigation patterns in the simulation.
+      required: false
+      default: true
+      selector:
+        boolean:

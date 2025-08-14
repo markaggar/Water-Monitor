@@ -295,10 +295,14 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 self.async_write_ha_state()
                 return
 
-            # Fetch baseline for current hour/day_type
+            # Fetch context-aware baseline for current hour/day_type and occupancy/person context
             eng = self._get_engine()
             hour, day_type = self._hour_and_daytype(now)
-            stats = eng.get_simple_bucket_stats(hour, day_type) if eng else {
+            stats = None
+            if eng:
+                # Ask engine for context-aware stats reflecting now
+                stats = eng.get_context_stats_for_now()
+            stats = stats or {
                 "bucket": None,
                 "count": 0,
                 "p50": 0.0,

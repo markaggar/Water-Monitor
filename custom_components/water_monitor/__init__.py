@@ -37,6 +37,28 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 return
 
         hass.services.async_register(DOMAIN, "analyze_yesterday", _handle_analyze)
+        
+        async def _handle_simulate(call: ServiceCall) -> None:
+            target_id: str | None = call.data.get("entry_id")
+            days: int = int(call.data.get("days", 14) or 14)
+            seed = call.data.get("seed")
+            include_irrigation = bool(call.data.get("include_irrigation", True))
+            targets = []
+            if target_id:
+                data = hass.data.get(DOMAIN, {}).get(target_id)
+                if data and data.get("engine"):
+                    targets.append(data["engine"])
+            else:
+                for eid, data in hass.data.get(DOMAIN, {}).items():
+                    if isinstance(data, dict) and data.get("engine"):
+                        targets.append(data["engine"])
+            for eng in targets:
+                try:
+                    await eng.simulate_history(days=days, seed=seed, include_irrigation=include_irrigation)
+                except Exception:
+                    pass
+
+        hass.services.async_register(DOMAIN, "simulate_history", _handle_simulate)
         domain_data["services_registered"] = True
     return True
 
@@ -108,6 +130,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return
 
         hass.services.async_register(DOMAIN, "analyze_yesterday", _handle_analyze)
+        
+        async def _handle_simulate(call: ServiceCall) -> None:
+            target_id: str | None = call.data.get("entry_id")
+            days: int = int(call.data.get("days", 14) or 14)
+            seed = call.data.get("seed")
+            include_irrigation = bool(call.data.get("include_irrigation", True))
+            targets = []
+            if target_id:
+                data = hass.data.get(DOMAIN, {}).get(target_id)
+                if data and data.get("engine"):
+                    targets.append(data["engine"])
+            else:
+                for eid, data in hass.data.get(DOMAIN, {}).items():
+                    if isinstance(data, dict) and data.get("engine"):
+                        targets.append(data["engine"])
+            for eng in targets:
+                try:
+                    await eng.simulate_history(days=days, seed=seed, include_irrigation=include_irrigation)
+                except Exception:
+                    pass
+
+        hass.services.async_register(DOMAIN, "simulate_history", _handle_simulate)
         domain_data["services_registered"] = True
 
     # Reload on options changes
@@ -129,6 +173,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not any_engines_left and domain_data.get("services_registered"):
         try:
             hass.services.async_remove(DOMAIN, "analyze_yesterday")
+            hass.services.async_remove(DOMAIN, "simulate_history")
         except Exception:  # pragma: no cover - defensive
             pass
         domain_data.pop("services_registered", None)

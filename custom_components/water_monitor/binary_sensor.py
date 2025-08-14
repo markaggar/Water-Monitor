@@ -235,8 +235,9 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         self._attr_available = True
         self._attr_extra_state_attributes = {}
         self._unsub = None
-    self._last_eval_ts: Optional[datetime] = None
-    self._sensitivity_entity_id = None
+        # Last evaluation timestamp; set during tracker callbacks
+        self._last_eval_ts = None
+        self._sensitivity_entity_id = None
 
     @property
     def device_info(self) -> DeviceInfo:

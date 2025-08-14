@@ -238,9 +238,9 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         # Last evaluation timestamp; set during tracker callbacks
         self._last_eval_ts = None
         self._sensitivity_entity_id = None
-    # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
-    self._flow_active_start = None
-    self._last_flow_now = 0.0
+        # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
+        self._flow_active_start = None
+        self._last_flow_now = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:

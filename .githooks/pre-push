@@ -1,11 +1,12 @@
-#!/usr/bin/env pwsh
-# Pre-push hook: deploy the water_monitor files to HA share after a successful push
-# Requires PowerShell and access to \\10.0.0.55\config
+#!/bin/sh
+# Pre-push hook: deploy the water_monitor files to HA share (best-effort)
+# Works on Git for Windows by invoking PowerShell
 
-try {
-  & scripts/deploy-water-monitor.ps1
-} catch {
-  # Don't block push on deploy errors
-  exit 0
-}
+if command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\\deploy-water-monitor.ps1"
+elif command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File "scripts/deploy-water-monitor.ps1"
+fi
+
+# Never block the push
 exit 0

@@ -107,8 +107,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not results:
                 return
 
-    hass.services.async_register(DOMAIN, "analyze_yesterday", _handle_analyze)
-    domain_data["services_registered"] = True
+        hass.services.async_register(DOMAIN, "analyze_yesterday", _handle_analyze)
+        domain_data["services_registered"] = True
 
     # Reload on options changes
     entry.async_on_unload(entry.add_update_listener(_update_listener))

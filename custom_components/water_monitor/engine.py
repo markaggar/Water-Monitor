@@ -7,6 +7,7 @@ from statistics import mean, pstdev
 from typing import Any, Dict, List, Optional
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.storage import Store
 
@@ -17,6 +18,7 @@ from .const import (
     CONF_OCC_MODE_ENTITY,
     CONF_OCC_STATE_AWAY,
     CONF_OCC_STATE_VACATION,
+    engine_signal,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,6 +136,12 @@ class WaterMonitorEngine:
         if len(self._state.sessions) > 5000:
             self._state.sessions = self._state.sessions[-5000:]
         await self._save()
+        # Notify interested entities
+        async_dispatcher_send(self.hass, engine_signal(self.entry_id), {
+            "type": "ingest",
+            "event": "session_recorded",
+            "record": rec.__dict__,
+        })
 
     async def analyze_yesterday(self) -> Dict[str, Any]:
         """Compute daily summary for yesterday and store it."""
@@ -190,6 +198,12 @@ class WaterMonitorEngine:
         await self._save()
 
         _LOGGER.info("Daily water summary for %s: %s", y_key, summary)
+        # Notify interested entities
+        async_dispatcher_send(self.hass, engine_signal(self.entry_id), {
+            "type": "daily",
+            "event": "summary",
+            "summary": summary,
+        })
         return summary
 
     async def _handle_daily_tick(self, *_args) -> None:

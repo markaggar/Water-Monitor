@@ -24,6 +24,7 @@ from homeassistant.helpers.event import (
     async_call_later,
     async_track_time_interval,
 )
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
     DOMAIN,
@@ -58,6 +59,7 @@ from .const import (
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
+from .const import engine_signal
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -126,7 +128,89 @@ async def async_setup_entry(
             )
         )
 
+    # Engine status binary sensor (reflects data collection and anomaly)
+    entities.append(
+        EngineStatusBinarySensor(
+            entry=entry,
+            name=f"{prefix} Daily analysis status",
+        )
+    )
+
     async_add_entities(entities)
+
+
+class EngineStatusBinarySensor(BinarySensorEntity):
+    """Shows whether the engine has flagged an anomaly for the latest daily summary.
+
+    Attributes also include last session/summary timestamps and counts for visibility.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, entry: ConfigEntry, name: str) -> None:
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_engine_status"
+        self._attr_is_on = False
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+        self._unsub = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to engine dispatches
+        sig = engine_signal(self._entry.entry_id)
+        self._unsub = async_dispatcher_connect(self.hass, sig, self._on_engine_event)
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _on_engine_event(self, payload: dict) -> None:
+        """Process engine events to reflect status and anomaly flag."""
+        try:
+            typ = payload.get("type")
+            if typ == "ingest":
+                rec = payload.get("record", {})
+                self._attr_extra_state_attributes.update({
+                    "last_session_ended_at": rec.get("ended_at"),
+                    "last_session_volume": rec.get("volume"),
+                    "last_session_duration_s": rec.get("duration_s"),
+                })
+                # Data collection active
+                self._attr_available = True
+            elif typ == "daily":
+                summary = payload.get("summary", {})
+                anomaly = bool(summary.get("anomaly", False))
+                self._attr_is_on = anomaly
+                self._attr_extra_state_attributes.update({
+                    "last_daily_date": summary.get("date"),
+                    "last_daily_total_volume": summary.get("total_volume"),
+                    "last_daily_sessions": summary.get("sessions"),
+                    "baseline_mean": summary.get("baseline_mean"),
+                    "baseline_std": summary.get("baseline_std"),
+                    "threshold_3sigma": summary.get("threshold_3sigma"),
+                })
+            # Write updated state
+            self.async_write_ha_state()
+        except Exception:
+            # Defensive: don’t throw from callback
+            pass
 
 
 class UpstreamHealthBinarySensor(BinarySensorEntity):

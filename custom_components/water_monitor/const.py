@@ -109,3 +109,9 @@ DEFAULTS.update({
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S: 0,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S: 0,
 })
+
+
+# Dispatcher signal helper for engine updates
+def engine_signal(entry_id: str) -> str:
+    """Return the dispatcher signal name for engine updates for a given entry."""
+    return f"{DOMAIN}_engine_updated_{entry_id}"

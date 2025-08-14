@@ -1,0 +1,124 @@
+# Drop this file into your Home Assistant config (e.g., config/packages/)
+# and include_dir_named it from configuration.yaml:
+# homeassistant:
+#   packages: !include_dir_named packages
+
+input_number:
+  water_test_flow_gpm:
+    name: Water Test Flow (gpm)
+    min: 0
+    max: 10
+    step: 0.1
+  water_test_volume_gal:
+    name: Water Test Volume (gal)
+    min: 0
+    max: 10000
+    step: 0.01
+
+sensor:
+  - platform: template
+    sensors:
+      water_test_flow:
+        friendly_name: "Water Test Flow"
+        unit_of_measurement: "gpm"
+        value_template: "{{ states('input_number.water_test_flow_gpm') | float(0) }}"
+      water_test_volume:
+        friendly_name: "Water Test Volume"
+        unit_of_measurement: "gal"
+        value_template: "{{ states('input_number.water_test_volume_gal') | float(0) }}"
+
+script:
+  sim_flow_stop:
+    alias: Stop Simulated Flow
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.water_test_flow_gpm
+
+  sim_tick_volume:
+    alias: Simulated Tick (increment volume by flow per second)
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: >-
+            {{ (states('input_number.water_test_volume_gal')|float(0)) +
+               (states('input_number.water_test_flow_gpm')|float(0) / 60.0) }}
+        target:
+          entity_id: input_number.water_test_volume_gal
+
+  sim_leak_start:
+    alias: Start Simulated Leak (0.2 gpm for 20 min)
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0.2
+        target:
+          entity_id: input_number.water_test_flow_gpm
+      - repeat:
+          count: 1200
+          sequence:
+            - service: script.sim_tick_volume
+            - delay: "00:00:01"
+
+  sim_normal_shower:
+    alias: Simulate Normal Shower (2.2 gpm for 8 min)
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 2.2
+        target:
+          entity_id: input_number.water_test_flow_gpm
+      - repeat:
+          count: 480
+          sequence:
+            - service: script.sim_tick_volume
+            - delay: "00:00:01"
+      - service: script.sim_flow_stop
+
+  sim_reset_volume:
+    alias: Reset Simulated Volume to 0
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.water_test_volume_gal
+
+  sim_seed_baselines:
+    alias: Seed Water Monitor Baselines (14 days)
+    sequence:
+      - service: water_monitor.simulate_history
+        data:
+          days: 14
+          include_irrigation: true
+
+automation:
+  - id: water_monitor_sim_log_on_update
+    alias: Log Intelligent Leak Attributes on Update
+    mode: queued
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.water_monitor_intelligent_leak
+    action:
+      - variables:
+          attrs: "{{ state_attr('binary_sensor.water_monitor_intelligent_leak', 'friendly_name') }} | ready={{ state_attr('binary_sensor.water_monitor_intelligent_leak','baseline_ready') }} p={{ state_attr('binary_sensor.water_monitor_intelligent_leak','chosen_percentile') }} thr_s={{ state_attr('binary_sensor.water_monitor_intelligent_leak','effective_threshold_s') }} risk={{ state_attr('binary_sensor.water_monitor_intelligent_leak','risk') }} reasons={{ state_attr('binary_sensor.water_monitor_intelligent_leak','reasons') }}"
+      - service: system_log.write
+        data:
+          level: info
+          message: "Intelligent Leak Update: {{ attrs }}"
+
+  - id: water_monitor_sim_tick_daemon
+    alias: Simulated Tick Daemon (every second while flow > 0)
+    mode: restart
+    trigger:
+      - platform: time_pattern
+        seconds: "/1"
+    condition:
+      - condition: template
+        value_template: "{{ states('input_number.water_test_flow_gpm')|float(0) > 0 }}"
+    action:
+      - service: script.sim_tick_volume

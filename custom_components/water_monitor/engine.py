@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from statistics import mean, pstdev
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -43,6 +43,9 @@ class SessionRecord:
 class EngineState:
     sessions: List[SessionRecord] = field(default_factory=list)
     daily: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Simple long-horizon stats for duration/flow by (hour, day_type)
+    # Structure: {"H|D": {"durations": [int], "flows": [float], "count": int, "last_updated": iso}}
+    hourly_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 class WaterMonitorEngine:
@@ -87,6 +90,7 @@ class WaterMonitorEngine:
             sessions = [SessionRecord(**rec) for rec in data.get("sessions", [])]
             self._state.sessions = sessions
             self._state.daily = data.get("daily", {})
+            self._state.hourly_stats = data.get("hourly_stats", {})
         except Exception as e:
             _LOGGER.warning("Engine state load failed: %s", e)
 
@@ -95,6 +99,7 @@ class WaterMonitorEngine:
             data = {
                 "sessions": [rec.__dict__ for rec in self._state.sessions],
                 "daily": self._state.daily,
+                "hourly_stats": self._state.hourly_stats,
             }
             await self._store.async_save(data)
         except Exception as e:
@@ -135,6 +140,13 @@ class WaterMonitorEngine:
         # Keep storage bounded (e.g., last 180 days sessions)
         if len(self._state.sessions) > 5000:
             self._state.sessions = self._state.sessions[-5000:]
+        # Update hourly/context stats (first pass: hour + day_type only)
+        try:
+            dt = datetime.fromisoformat(ended_at)
+        except Exception:
+            dt = datetime.now(timezone.utc)
+        hour, day_type = self._local_hour_and_daytype(dt)
+        self._update_hourly_stats(hour, day_type, rec.duration_s, rec.avg_flow)
         await self._save()
         # Notify interested entities
         async_dispatcher_send(self.hass, engine_signal(self.entry_id), {
@@ -215,3 +227,96 @@ class WaterMonitorEngine:
             await self.analyze_yesterday()
         except Exception as e:
             _LOGGER.exception("Daily analysis failed: %s", e)
+
+    # -------------------------
+    # Baselines (simple version)
+    # -------------------------
+
+    def _local_hour_and_daytype(self, dt: datetime) -> Tuple[int, str]:
+        try:
+            local = dt.astimezone()
+        except Exception:
+            local = datetime.now().astimezone()
+        hour = local.hour
+        day_type = "weekend" if local.weekday() >= 5 else "weekday"
+        return hour, day_type
+
+    def _bucket_key(self, hour: int, day_type: str) -> str:
+        return f"{hour}|{day_type}"
+
+    def _update_hourly_stats(self, hour: int, day_type: str, duration_s: int, avg_flow: float) -> None:
+        key = self._bucket_key(hour, day_type)
+        slot = self._state.hourly_stats.setdefault(key, {"durations": [], "flows": [], "count": 0, "last_updated": None})
+        # Append and bound arrays for simple online storage; size cap per bucket ~200
+        slot["durations"].append(int(duration_s))
+        if len(slot["durations"]) > 200:
+            slot["durations"] = slot["durations"][-200:]
+        try:
+            f = float(avg_flow)
+        except Exception:
+            f = 0.0
+        slot["flows"].append(f)
+        if len(slot["flows"]) > 200:
+            slot["flows"] = slot["flows"][-200:]
+        slot["count"] = len(slot["durations"])  # simple count
+        slot["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    def _percentile(self, data: List[float] | List[int], pct: float) -> float:
+        if not data:
+            return 0.0
+        xs = sorted(float(x) for x in data)
+        if len(xs) == 1:
+            return xs[0]
+        # Clamp percentile to [0, 100]
+        p = max(0.0, min(100.0, pct)) / 100.0
+        idx = p * (len(xs) - 1)
+        lo = int(idx)
+        hi = min(lo + 1, len(xs) - 1)
+        frac = idx - lo
+        return xs[lo] * (1.0 - frac) + xs[hi] * frac
+
+    def get_simple_bucket_stats(self, hour: int, day_type: str) -> Dict[str, Any]:
+        """Return simple stats for a bucket and fallbacks if needed.
+
+        Fallbacks: (hour, day_type) -> (hour) -> global
+        """
+        def make_stats(durations: List[int]) -> Dict[str, Any]:
+            return {
+                "count": len(durations),
+                "p50": round(self._percentile(durations, 50), 1),
+                "p90": round(self._percentile(durations, 90), 1),
+                "p95": round(self._percentile(durations, 95), 1),
+                "p99": round(self._percentile(durations, 99), 1),
+            }
+
+        # Exact bucket
+        key = self._bucket_key(hour, day_type)
+        slot = self._state.hourly_stats.get(key)
+        if slot and slot.get("durations"):
+            durs = [int(x) for x in slot["durations"] if isinstance(x, (int, float))]
+            st = make_stats(durs)
+            st["bucket"] = key
+            st["level"] = 1
+            return st
+
+        # Hour-only fallback (merge weekday+weekend for this hour)
+        merged: List[int] = []
+        for dtp in ("weekday", "weekend"):
+            s = self._state.hourly_stats.get(self._bucket_key(hour, dtp))
+            if s and s.get("durations"):
+                merged.extend(int(x) for x in s["durations"] if isinstance(x, (int, float)))
+        if merged:
+            st = make_stats(merged)
+            st["bucket"] = f"{hour}|*"
+            st["level"] = 2
+            return st
+
+        # Global fallback: merge everything
+        all_durs: List[int] = []
+        for s in self._state.hourly_stats.values():
+            if s and s.get("durations"):
+                all_durs.extend(int(x) for x in s["durations"] if isinstance(x, (int, float)))
+        st = make_stats(all_durs)
+        st["bucket"] = "*"
+        st["level"] = 3
+        return st

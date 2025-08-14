@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Local nested repo/work dir
+_pr7661/

@@ -59,7 +59,8 @@ from .const import (
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
-from .const import engine_signal
+from .const import engine_signal, tracker_signal
+from .engine import WaterMonitorEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -133,6 +134,14 @@ async def async_setup_entry(
         EngineStatusBinarySensor(
             entry=entry,
             name=f"{prefix} Daily analysis status",
+        )
+    )
+
+    # Intelligent leak detector (simple baseline version)
+    entities.append(
+        IntelligentLeakBinarySensor(
+            entry=entry,
+            name=f"{prefix} Intelligent leak",
         )
     )
 
@@ -210,6 +219,146 @@ class EngineStatusBinarySensor(BinarySensorEntity):
             self.async_write_ha_state()
         except Exception:
             # Defensive: don’t throw from callback
+            pass
+
+
+class IntelligentLeakBinarySensor(BinarySensorEntity):
+    """Real-time leak detection based on current-session and simple hourly baselines."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, entry: ConfigEntry, name: str) -> None:
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_intelligent_leak"
+        self._attr_is_on = False
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+        self._unsub = None
+        self._last_eval_ts: Optional[datetime] = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to live tracker updates
+        sig = tracker_signal(self._entry.entry_id)
+        self._unsub = async_dispatcher_connect(self.hass, sig, self._on_tracker_update)
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
+
+    def _get_engine(self) -> Optional[WaterMonitorEngine]:
+        try:
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            return data.get("engine") if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
+        local = now.astimezone()
+        return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
+
+    @callback
+    def _on_tracker_update(self, state: dict) -> None:
+        try:
+            now = datetime.now(timezone.utc)
+            self._last_eval_ts = now
+            # Pull live session metrics
+            active = bool(state.get("current_session_active", False))
+            elapsed = int(state.get("current_session_duration", 0) or 0)
+            avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
+            hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
+            flow_now = float(state.get("flow_sensor_value", 0.0) or 0.0)
+
+            # Only evaluate risk during a session with some elapsed time
+            if not active or elapsed <= 0:
+                # If not active, auto-clear after some idle
+                if self._attr_is_on:
+                    self._attr_is_on = False
+                    self._attr_extra_state_attributes.update({
+                        "reason": "no_active_session",
+                    })
+                self.async_write_ha_state()
+                return
+
+            # Fetch baseline for current hour/day_type
+            eng = self._get_engine()
+            hour, day_type = self._hour_and_daytype(now)
+            stats = eng.get_simple_bucket_stats(hour, day_type) if eng else {
+                "bucket": None,
+                "count": 0,
+                "p50": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "level": 99,
+            }
+
+            # Risk: primary on duration exceeding p95; stronger above p99
+            p95 = float(stats.get("p95", 0.0) or 0.0)
+            p99 = float(stats.get("p99", 0.0) or 0.0)
+            count = int(stats.get("count", 0) or 0)
+            bucket = stats.get("bucket")
+
+            risk = 0.0
+            reasons = []
+            baseline_ready = count >= 10
+            if baseline_ready:
+                if p95 > 0 and elapsed > p95:
+                    over = (elapsed - p95) / max(1.0, p95)
+                    risk += 0.7 + min(0.6, over)  # up to 1.3
+                    reasons.append("elapsed>p95")
+                if p99 > 0 and elapsed > p99:
+                    over2 = (elapsed - p99) / max(1.0, p99)
+                    risk += 0.6 + min(0.6, over2)
+                    reasons.append("elapsed>p99")
+            else:
+                # No baseline -> be conservative, require long elapsed
+                if elapsed >= 30 * 60:  # 30 minutes
+                    risk = 1.0
+                    reasons.append("elapsed>=30min_no_baseline")
+
+            # Slightly increase risk if flow is very low but persistent (drip leaks)
+            if 0.0 < flow_now <= 0.3 and elapsed >= 10 * 60:
+                risk += 0.3
+                reasons.append("low_flow_persistent")
+
+            is_on = risk >= 1.0
+            prev = self._attr_is_on
+            self._attr_is_on = is_on
+            self._attr_extra_state_attributes = {
+                "baseline_ready": baseline_ready,
+                "bucket_used": bucket,
+                "count": count,
+                "p95": p95,
+                "p99": p99,
+                "elapsed_s": elapsed,
+                "avg_flow": round(avg_flow, 2),
+                "hot_pct": round(hot_pct, 1),
+                "flow_now": flow_now,
+                "risk": round(risk, 2),
+                "reasons": reasons,
+            }
+            if prev != self._attr_is_on:
+                self.async_write_ha_state()
+            else:
+                self.async_write_ha_state()
+        except Exception:
+            # Silent fail to avoid crashing dispatcher
             pass
 
 

@@ -5,6 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, CONF_SENSOR_PREFIX
+from .engine import WaterMonitorEngine  # new engine
 
 # Platforms provided by this integration
 PLATFORMS: list[str] = ["sensor", "binary_sensor", "number"]
@@ -43,6 +44,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             model=desired_model,
         )
 
+    # Create and start engine
+    hass.data.setdefault(DOMAIN, {})
+    engine = WaterMonitorEngine(hass, entry.entry_id, ex)
+    hass.data[DOMAIN][entry.entry_id] = {"engine": engine}
+    await engine.start()
+
     # Reload on options changes
     entry.async_on_unload(entry.add_update_listener(_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -50,4 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Stop engine and unload platforms
+    data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if data and data.get("engine"):
+        await data["engine"].stop()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

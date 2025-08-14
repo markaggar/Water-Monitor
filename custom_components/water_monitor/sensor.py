@@ -31,6 +31,7 @@ from .const import (
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
 )
 from .water_session_tracker import WaterSessionTracker
+from .engine import WaterMonitorEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,6 +105,18 @@ async def async_setup_entry(
     main_sensor.add_state_listener(duration_sensor.update_from_tracker)
     main_sensor.add_state_listener(avg_flow_sensor.update_from_tracker)
     main_sensor.add_state_listener(hot_pct_sensor.update_from_tracker)
+
+    # Also forward to engine for persistence/analysis
+    async def _forward_to_engine(state: dict):
+        try:
+            data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+            engine: WaterMonitorEngine | None = data.get("engine") if data else None
+            if engine:
+                await engine.ingest_state(state)
+        except Exception:
+            pass
+
+    main_sensor.add_state_listener(_forward_to_engine)
 
     async_add_entities([main_sensor, current_sensor, duration_sensor, avg_flow_sensor, hot_pct_sensor])
 

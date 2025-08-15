@@ -11,14 +11,14 @@ input_number:
 template:
   - trigger:
       - platform: time_pattern
-        seconds: "/1"
+        seconds: "/30"
       - platform: state
         entity_id: input_number.water_test_flow_gpm
     sensor:
       - name: Water Test Flow Sampled
         unique_id: water_test_flow_sampled
         state: "{{ states('input_number.water_test_flow_gpm')|float(0) }}"
-        unit_of_measurement: "gpm"
+        unit_of_measurement: "gal/min"
         state_class: measurement
         attributes:
           last_sample: "{{ now().isoformat() }}"
@@ -29,6 +29,7 @@ sensor:
     name: Water Test Volume (integrated)
     unit_time: min
     method: left
+    max_sub_interval: 1
     round: 3
 
 script:

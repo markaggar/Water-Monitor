@@ -2,7 +2,9 @@
 
 This guide shows how to test the Intelligent Leak sensor safely by simulating flow/volume in Home Assistant.
 
+ 
 ## 1) Seed baselines (optional but recommended)
+ 
 Use the built-in service to generate historical sessions so baselines exist:
 
 - Call service `water_monitor.simulate_history` with:
@@ -12,7 +14,9 @@ Use the built-in service to generate historical sessions so baselines exist:
 
 This only seeds the engine’s learning; it does not generate live sessions.
 
+ 
 ## 2) Create controllable test sensors (no hardware)
+ 
 We’ll drive two helpers and expose them via Template Sensors that your integration can point at for flow and volume.
 
 Add to your `configuration.yaml` (or a package):
@@ -46,11 +50,14 @@ sensor:
 Reload helpers and template entities (or restart HA).
 
 Then configure the Water Monitor integration to use:
+
 - Flow sensor: `sensor.water_test_flow`
 - Volume sensor: `sensor.water_test_volume`
 - Hot water sensor: leave blank (optional)
 
+ 
 ### Alternative (recommended): Integration sensor for volume
+ 
 Instead of manually ticking volume, create an Integration sensor that converts flow (gpm) into cumulative volume (gal). This is simpler and more realistic, and works perfectly with the integration’s session tracking (it subtracts the starting total per session).
 
 Add this sensor (use Left Riemann to avoid jumps):
@@ -66,85 +73,46 @@ sensor:
 ```
 
 Then use:
+
 - Flow sensor: `sensor.water_test_flow`
 - Volume sensor: `sensor.water_test_volume_integrated`
 
 With this approach, you don’t need the per-second tick script or daemon; set the flow to a value, wait, then set it back to zero to simulate sessions/leaks. The Integration sensor will accumulate volume automatically.
 
-## 3) Scripts to simulate sessions and leaks
-Add scripts that “tick” the volume based on flow once per second. If you use the Integration sensor approach above, you can skip this section and instead create simple scripts that set flow for a duration and then stop.
+ 
+## 3) Use the Integration-based simulation package (recommended)
+ 
+Use the package `docs/examples/water_monitor_simulation_package_integration.yaml` to simulate flow directly in HA. It:
 
-```yaml
-script:
-  sim_flow_stop:
-    alias: Stop Simulated Flow
-    sequence:
-      - service: input_number.set_value
-        data:
-          value: 0
-        target:
-          entity_id: input_number.water_test_flow_gpm
+- Creates a sampled flow sensor and integrates it to volume (left Riemann).
+- Provides scripts for fixed events (e.g., normal shower) and a delta-based adjuster.
+- Adds parallel, randomized event scripts (faucet, shower, washer, toilet, dishwasher, irrigation) that add a flow delta on start and subtract it on completion.
+- Includes a dedicated Tank Leak simulation with small periodic jitter.
 
-  sim_leak_start:
-    alias: Start Simulated Leak (0.2 gpm for 20 min)
-    mode: restart
-    sequence:
-      - service: input_number.set_value
-        data:
-          value: 0.2
-        target:
-          entity_id: input_number.water_test_flow_gpm
-      - repeat:
-          count: 1200   # 20 minutes
-          sequence:
-            - service: input_number.set_value
-              data:
-                value: >-
-                  {{ (states('input_number.water_test_volume_gal')|float(0)) +
-                     (states('input_number.water_test_flow_gpm')|float(0) / 60.0) }}
-              target:
-                entity_id: input_number.water_test_volume_gal
-            - delay: "00:00:01"
+Enable randomized usage by turning on `input_boolean.sim_random_usage_enabled`. Start/stop the tank leak with `script.sim_tank_leak_start` / `script.sim_tank_leak_stop`.
 
-  sim_normal_shower:
-    alias: Simulate Normal Shower (2.2 gpm for 8 min)
-    mode: restart
-    sequence:
-      - service: input_number.set_value
-        data:
-          value: 2.2
-        target:
-          entity_id: input_number.water_test_flow_gpm
-      - repeat:
-          count: 480   # 8 minutes
-          sequence:
-            - service: input_number.set_value
-              data:
-                value: >-
-                  {{ (states('input_number.water_test_volume_gal')|float(0)) +
-                     (states('input_number.water_test_flow_gpm')|float(0) / 60.0) }}
-              target:
-                entity_id: input_number.water_test_volume_gal
-            - delay: "00:00:01"
-      - service: script.sim_flow_stop
-```
-
-Tip: You can add more scripts (e.g., dishwasher at 0.6 gpm for 45 min) to build “normal” behavior.
-
+ 
 ## 4) Run a test
+ 
 - Run `script.sim_normal_shower` a few times (and/or call `water_monitor.simulate_history`) to build baselines.
 - Start a leak with `script.sim_leak_start`.
 - Watch `binary_sensor.*intelligent_leak` attributes:
   - `baseline_ready`, `chosen_percentile`, `effective_threshold_s`, `risk`, `reasons`.
 - Adjust “Leak alert sensitivity” number entity if you want it stricter/looser.
 
+ 
 ## 5) Cleanup/Reset
+ 
 - Run `script.sim_flow_stop` to end a session.
 - Set `input_number.water_test_volume_gal` back to 0 if you want a fresh start.
 
+ 
 ## Alternative: MQTT sensors
+ 
 If you prefer, create two MQTT sensors and publish values via `mqtt.publish` service. The logic is the same: set flow, increment volume each second.
 
+ 
 ## Notes
+ 
 - The integration reads numeric `state` from your configured flow/volume sensors; units are for display only.
 - The engine’s baseline learning is separate from the real-time tracker; you can seed history then simulate live sessions as above.

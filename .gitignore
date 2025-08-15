@@ -1,3 +1,5 @@
+# Ignore nested repos
+homeassistant-mcp/
 # Python
 __pycache__/
 *.py[cod]

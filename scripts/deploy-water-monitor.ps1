@@ -1,5 +1,6 @@
 param(
     [string]$DestPath = "\\10.0.0.55\config\custom_components\water_monitor",
+    [string]$PackagesDest = "\\10.0.0.55\config\packages",
     [string]$VerifyEntity
 )
 
@@ -10,6 +11,8 @@ $src = Join-Path $repoRoot "custom_components\water_monitor"
 
 # Track verification failure to signal regressions via exit code
 $script:wmFail = $false
+$componentCopied = $false
+$packagesCopied = $false
 
 Write-Host "Deploying Water Monitor from: $src" -ForegroundColor Cyan
 Write-Host "To: $DestPath" -ForegroundColor Cyan
@@ -40,6 +43,9 @@ if ($code -le 7) {
     Write-Host "Robocopy OK (code $code)" -ForegroundColor DarkGray
 }
 
+# Mark component changes if any files were copied (bit 0x01)
+if ( ($code -band 1) -ne 0 ) { $componentCopied = $true }
+
 if ($code -gt 7) {
     # Fallback: Copy-Item per file if Robocopy failed
     Write-Warning "Robocopy reported error (code $code); attempting fallback copy..."
@@ -57,6 +63,44 @@ if ($code -gt 7) {
     } catch {
         Write-Warning "Fallback copy failed: $($_.Exception.Message)"
     }
+}
+
+# Also deploy any YAML packages (file name contains 'package' and ends with .yaml) to HA packages folder
+try {
+    if (-not (Test-Path $PackagesDest)) {
+        Write-Host "Packages destination missing; creating: $PackagesDest" -ForegroundColor DarkGray
+        New-Item -ItemType Directory -Force -Path $PackagesDest | Out-Null
+    }
+    $pkgFiles = Get-ChildItem -Path $repoRoot -Recurse -File -Include "*package*.yaml" -ErrorAction SilentlyContinue
+    foreach ($pf in $pkgFiles) {
+        # Use robocopy to only copy if file changed; flatten into the packages root
+        $srcDir = Split-Path -Parent $pf.FullName
+        $mask = Split-Path -Leaf $pf.FullName
+        $pkgArgs = @(
+            $srcDir,
+            $PackagesDest,
+            $mask,'/R:2','/W:2','/FFT','/IS'
+        )
+        & robocopy $pkgArgs | Out-Null
+        $pcode = $LASTEXITCODE
+        if ($pcode -lt 0) { $pcode = 16 }
+        if ($pcode -le 7) {
+            if ( ($pcode -band 1) -ne 0 ) {
+                $packagesCopied = $true
+                Write-Host "Copied package: $mask -> $PackagesDest (code $pcode)" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Warning "Robocopy failed for package $mask (code $pcode)"
+        }
+    }
+} catch {
+    Write-Warning "Package copy step error: $($_.Exception.Message)"
+}
+
+# If no changes to component or packages, skip HA restart entirely
+if (-not $componentCopied -and -not $packagesCopied) {
+    Write-Host "No changes detected (component or packages). Skipping HA restart." -ForegroundColor DarkGray
+    exit 0
 }
 
 # Optional: Restart Home Assistant via REST if env vars are present

@@ -297,6 +297,7 @@ automation:
         state: "on"
     action:
       - variables:
+          curr: "{{ states('input_number.water_test_flow_gpm')|float(0) }}"
           r_faucet: "{{ range(1,101)|random }}"       # ~8%/tick
           r_toilet: "{{ range(1,101)|random }}"       # ~2%/tick
           r_dish:   "{{ range(1,101)|random }}"       # ~1%/tick
@@ -304,39 +305,35 @@ automation:
           r_shower: "{{ range(1,301)|random }}"       # ~0.33%/tick
           r_irrig:  "{{ range(1,601)|random }}"       # ~0.17%/tick
       - choose:
+          # Only one branch executes (first match). Each branch also guards on current flow level.
           - conditions:
               - condition: template
-                value_template: "{{ (r_faucet | int(0)) <= 8 }}"
+                value_template: "{{ (r_faucet | int(0)) <= 8 and (curr | float(0)) < 2.0 }}"
             sequence:
               - service: script.sim_event_faucet
-      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ (r_toilet | int(0)) <= 2 }}"
+                value_template: "{{ (r_toilet | int(0)) <= 2 and (curr | float(0)) < 2.5 }}"
             sequence:
               - service: script.sim_event_toilet
-      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ (r_dish | int(0)) <= 1 }}"
+                value_template: "{{ (r_dish | int(0)) <= 1 and (curr | float(0)) < 2.0 }}"
             sequence:
               - service: script.sim_event_dishwasher
-      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ (r_washer | int(0)) <= 1 }}"
+                value_template: "{{ (r_washer | int(0)) <= 1 and (curr | float(0)) < 2.5 }}"
             sequence:
               - service: script.sim_event_washer
-      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ (r_shower | int(0)) <= 1 }}"
+                value_template: "{{ (r_shower | int(0)) <= 1 and (curr | float(0)) < 2.0 }}"
             sequence:
               - service: script.sim_event_shower
-      - choose:
           - conditions:
               - condition: template
-                value_template: "{{ (r_irrig | int(0)) <= 1 }}"
+                value_template: "{{ (r_irrig | int(0)) <= 1 and (curr | float(0)) < 1.5 }}"
             sequence:
               - service: script.sim_event_irrigation
 

@@ -1,7 +1,9 @@
 param(
     [string]$DestPath = "\\10.0.0.55\config\custom_components\water_monitor",
     [string]$PackagesDest = "\\10.0.0.55\config\packages",
-    [string]$VerifyEntity
+    [string]$VerifyEntity,
+    [switch]$DumpErrorLog,
+    [switch]$DumpErrorLogOnFail
 )
 
 # Resolve repo root relative to this script
@@ -116,6 +118,31 @@ if ([string]::IsNullOrWhiteSpace($baseUrl)) {
 
 if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhiteSpace($token)) {
     $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
+    
+    function Fetch-HAErrorLog {
+        param([string]$why)
+        try {
+            $logUri = "$baseUrl/api/error_log"
+            $logHeaders = @{ Authorization = "Bearer $token"; 'Accept' = 'text/plain' }
+            Write-Host "Fetching HA error log ($why): $logUri" -ForegroundColor DarkGray
+            $logResp = Invoke-WebRequest -Method Get -Uri $logUri -Headers $logHeaders -TimeoutSec 20 -ErrorAction Stop
+            $content = $logResp.Content
+            if (-not [string]::IsNullOrEmpty($content)) {
+                $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
+                $outFile = Join-Path $repoRoot "ha-error-log-$ts.log"
+                $content | Out-File -FilePath $outFile -Encoding UTF8
+                Write-Host "Saved HA error log to $outFile" -ForegroundColor DarkGray
+                # Print a short tail to console for quick visibility
+                $lines = $content -split "`n"
+                $tail = ($lines | Select-Object -Last 80) -join "`n"
+                if ($tail) { Write-Host "--- HA error log (last 80 lines) ---`n$tail`n--- end ---" -ForegroundColor DarkYellow }
+            } else {
+                Write-Host "HA error log returned empty content." -ForegroundColor DarkGray
+            }
+        } catch {
+            Write-Warning "Failed to fetch HA error log: $($_.Exception.Message)"
+        }
+    }
     # Determine which entity to verify after restart
     if ([string]::IsNullOrWhiteSpace($VerifyEntity)) {
         if (-not [string]::IsNullOrWhiteSpace($env:HA_VERIFY_ENTITY)) {
@@ -182,6 +209,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     }
     if (-not $back) {
         Write-Warning "HA did not respond with HTTP 200 within $maxWait s; it may still be restarting."
+    if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'restart did not return 200 in time' }
     }
 
     # Optional: verify a specific entity becomes available
@@ -215,8 +243,12 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         if (-not $ok) {
             Write-Warning "Entity $VerifyEntity was not available within ${verifyMaxWait}s. Possible regression introduced."
             $script:wmFail = $true
+        if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'entity verification failed' }
         }
     }
+
+    # Optional: always dump error log after restart (useful when diagnosing load issues)
+    if ($DumpErrorLog) { Fetch-HAErrorLog -why 'post-restart (requested)'}
 } else {
     Write-Host "Skipping HA restart (set HA_BASE_URL and HA_TOKEN to enable)." -ForegroundColor DarkGray
 }

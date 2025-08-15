@@ -63,7 +63,7 @@ script:
     sequence:
       - variables:
           new_val: >-
-            {{ (states('input_number.water_test_flow_gpm')|float(0) + (delta|float)) | max(0) | round(3) }}
+            {{ ([ states('input_number.water_test_flow_gpm')|float(0) + (delta|float), 0 ] | max) | round(3) }}
       - service: input_number.set_value
         data:
           value: "{{ new_val }}"

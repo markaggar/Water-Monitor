@@ -258,6 +258,9 @@ class WaterSessionTracker:
             "intermediate_session_average_flow": intermediate_avg_flow,
             "intermediate_session_hot_water_duration": self._intermediate_hot_water_duration,
             "intermediate_session_hot_water_pct": intermediate_hot_pct,
+            # Last completed session summary (includes timestamps)
+            "last_session_start": self.last_session.start_time.isoformat() if self.last_session else None,
+            "last_session_end": self.last_session.end_time.isoformat() if self.last_session else None,
             "last_session_volume": self.last_session.volume if self.last_session else 0.0,
             "last_session_duration": self.last_session.duration if self.last_session else 0,
             "last_session_hot_water_pct": self.last_session.hot_water_percentage if self.last_session else 0.0,

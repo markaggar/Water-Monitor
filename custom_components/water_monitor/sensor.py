@@ -378,6 +378,7 @@ class WaterSessionSensor(SensorEntity):
                 "current_session_active": state_data.get("current_session_active", False),
                 "gap_active": state_data.get("gap_active", False),
                 "current_session_start": state_data.get("current_session_start"),
+                "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
                 "original_session_start": state_data.get("original_session_start"),
                 # Current session raw metrics (kept for visibility)
                 "current_session_volume": state_data.get("current_session_volume", 0.0),
@@ -385,6 +386,8 @@ class WaterSessionSensor(SensorEntity):
                 "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
                 "current_session_hot_water_pct": state_data.get("current_session_hot_water_pct", 0.0),
                 # Last session metrics
+                "last_session_start": state_data.get("last_session_start"),
+                "last_session_end": state_data.get("last_session_end"),
                 "last_session_volume": state_data.get("last_session_volume", 0.0),
                 "last_session_duration": state_data.get("last_session_duration", 0),
                 "last_session_average_flow": state_data.get("last_session_average_flow", 0.0),
@@ -513,6 +516,12 @@ class CurrentSessionVolumeSensor(SensorEntity):
             "session_duration": session_duration,
             "session_average_flow": session_avg_flow,
             "session_hot_water_pct": session_hot_pct,
+            # Session timestamps
+            "current_session_start": state_data.get("current_session_start"),
+            "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
+            "original_session_start": state_data.get("original_session_start"),
+            "last_session_start": state_data.get("last_session_start"),
+            "last_session_end": state_data.get("last_session_end"),
             # Instantaneous and debug
             "flow_sensor_value": state_data.get("flow_sensor_value", 0.0),
             "current_session_active": state_data.get("current_session_active", False),

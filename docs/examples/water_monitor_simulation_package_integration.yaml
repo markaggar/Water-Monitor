@@ -154,6 +154,7 @@ template:
         state: >-
           {% set leak_tank = (states('input_number.sim_tank_leak_base')|float(0)) + (states('input_number.sim_tank_leak_last_jitter')|float(0)) if is_state('input_boolean.sim_tank_leak_active','on') else 0 %}
           {% set total = [
+            states('input_number.water_test_flow_gpm')|float(0),
             states('input_number.sim_faucet_gpm')|float(0),
             states('input_number.sim_toilet_gpm')|float(0),
             states('input_number.sim_shower_gpm')|float(0),
@@ -175,6 +176,7 @@ template:
           dishwasher_gpm: "{{ states('input_number.sim_dw_gpm') }}"
           washer_gpm: "{{ states('input_number.sim_wm_gpm') }}"
           irrigation_gpm: "{{ states('input_number.sim_irrig_gpm') }}"
+      manual_gpm: "{{ states('input_number.water_test_flow_gpm') }}"
           leak_low_gpm: "{{ states('input_number.sim_leak_low_gpm') if is_state('input_boolean.sim_leak_low_active','on') else 0 }}"
           leak_high_gpm: "{{ states('input_number.sim_leak_high_gpm') if is_state('input_boolean.sim_leak_high_active','on') else 0 }}"
           leak_tank_gpm: >-
@@ -182,6 +184,7 @@ template:
           whats_on: >-
             {{
               [
+        'manual' if states('input_number.water_test_flow_gpm')|float(0) > 0 else None,
                 'faucet' if states('input_number.sim_faucet_gpm')|float(0) > 0 else None,
                 'toilet' if states('input_number.sim_toilet_gpm')|float(0) > 0 else None,
                 'shower' if states('input_number.sim_shower_gpm')|float(0) > 0 else None,
@@ -541,6 +544,7 @@ automation:
       - service: input_number.set_value
         target:
           entity_id:
+            - input_number.water_test_flow_gpm
             - input_number.sim_faucet_gpm
             - input_number.sim_toilet_gpm
             - input_number.sim_shower_gpm
@@ -607,7 +611,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_faucet_active','off')
-                    and now() >= (states('input_datetime.sim_faucet_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_faucet_next_allowed')|as_timestamp|float(0)))
                     and (range(1,101)|random) <= (4 * mult)|int
                   }}
             sequence:
@@ -624,7 +628,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_toilet_active','off')
-                    and now() >= (states('input_datetime.sim_toilet_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_toilet_next_allowed')|as_timestamp|float(0)))
                     and (range(1,101)|random) <= (1 * mult)|int
                   }}
             sequence:
@@ -641,7 +645,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_shower_active','off')
-                    and now() >= (states('input_datetime.sim_shower_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_shower_next_allowed')|as_timestamp|float(0)))
                     and (range(1,1001)|random) <= (2 * mult)|int
                   }}
             sequence:
@@ -658,7 +662,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_dw_active','off')
-                    and now() >= (states('input_datetime.sim_dw_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_dw_next_allowed')|as_timestamp|float(0)))
                     and (range(1,2001)|random) <= (2 * mult)|int
                   }}
             sequence:
@@ -675,7 +679,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_wm_active','off')
-                    and now() >= (states('input_datetime.sim_wm_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_wm_next_allowed')|as_timestamp|float(0)))
                     and (range(1,2001)|random) <= (2 * mult)|int
                   }}
             sequence:
@@ -692,7 +696,7 @@ automation:
                 value_template: >-
                   {{
                     is_state('input_boolean.sim_irrig_active','off')
-                    and now() >= (states('input_datetime.sim_irrig_next_allowed')|as_datetime | default(now()))
+                    and (now().timestamp() >= (states('input_datetime.sim_irrig_next_allowed')|as_timestamp|float(0)))
                     and (range(1,2001)|random) == 1
                   }}
             sequence:

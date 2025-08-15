@@ -64,8 +64,8 @@ $baseUrl = $env:HA_BASE_URL
 $token = $env:HA_TOKEN
 if ([string]::IsNullOrWhiteSpace($baseUrl)) {
     if ($DestPath -match '^\\\\([^\\]+)\\') {
-        $host = $Matches[1]
-        $baseUrl = "http://$host:8123"
+    $haHost = $Matches[1]
+    $baseUrl = "http://$haHost:8123"
         Write-Host "HA_BASE_URL not set; inferring $baseUrl from share host" -ForegroundColor DarkGray
     }
 }

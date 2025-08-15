@@ -371,7 +371,34 @@ class WaterSessionSensor(SensorEntity):
             # Update this entity's state and attributes (last completed session volume)
             last_session_volume = float(state_data.get("last_session_volume", 0.0))
             self._attr_native_value = round(last_session_volume, 2)
-            self._attr_extra_state_attributes = state_data
+
+            # Slim attributes: expose essentials only (omit all intermediate_* fields)
+            attrs = {
+                # Realtime flags and context
+                "current_session_active": state_data.get("current_session_active", False),
+                "gap_active": state_data.get("gap_active", False),
+                "current_session_start": state_data.get("current_session_start"),
+                "original_session_start": state_data.get("original_session_start"),
+                # Current session raw metrics (kept for visibility)
+                "current_session_volume": state_data.get("current_session_volume", 0.0),
+                "current_session_duration": state_data.get("current_session_duration", 0),
+                "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
+                "current_session_hot_water_pct": state_data.get("current_session_hot_water_pct", 0.0),
+                # Last session metrics
+                "last_session_volume": state_data.get("last_session_volume", 0.0),
+                "last_session_duration": state_data.get("last_session_duration", 0),
+                "last_session_average_flow": state_data.get("last_session_average_flow", 0.0),
+                "last_session_hot_water_pct": state_data.get("last_session_hot_water_pct", 0.0),
+                "last_session_gapped_sessions": state_data.get("last_session_gapped_sessions", 0),
+                # Instantaneous
+                "flow_sensor_value": state_data.get("flow_sensor_value", 0.0),
+                # Units and debug
+                "volume_unit": volume_unit,
+                "flow_unit": flow_unit,
+                "unit_of_measurement": volume_unit,
+                "debug_state": state_data.get("debug_state", "UNKNOWN"),
+            }
+            self._attr_extra_state_attributes = attrs
             self._attr_available = True
 
             # Notify all listeners (dependent sensors)
@@ -448,26 +475,15 @@ class CurrentSessionVolumeSensor(SensorEntity):
         self.async_write_ha_state()
 
     def _calculate_current_volume(self, state_data: dict) -> float:
-        """Calculate the most recent/relevant session volume for the state."""
-        current_volume = state_data.get("current_session_volume", 0.0)
-        intermediate_volume = state_data.get("intermediate_session_volume", 0.0)
-        session_active = state_data.get("current_session_active", False)
-        intermediate_exists = state_data.get("intermediate_session_exists", False)
-
-        if session_active and current_volume > 0:
-            return float(current_volume)
-        elif intermediate_exists and intermediate_volume > 0:
-            return float(intermediate_volume)
-        else:
-            # Session ended (or not started) -> zero
-            return 0.0
+        """Return current session volume if active; otherwise 0."""
+        current_volume = float(state_data.get("current_session_volume", 0.0) or 0.0)
+        session_active = bool(state_data.get("current_session_active", False))
+        return current_volume if session_active and current_volume > 0 else 0.0
 
     def _triage_stage(self, state_data: dict) -> str:
-        """Which stage should drive attributes: current, intermediate, or final."""
+        """Which stage should drive attributes: current or final (no intermediate)."""
         if state_data.get("current_session_active", False) and state_data.get("current_session_volume", 0.0) > 0:
             return "current"
-        if state_data.get("intermediate_session_exists", False) and state_data.get("intermediate_session_volume", 0.0) > 0:
-            return "intermediate"
         return "final"
 
     async def update_from_tracker(self, state_data: dict):
@@ -480,15 +496,11 @@ class CurrentSessionVolumeSensor(SensorEntity):
         current_volume = self._calculate_current_volume(state_data)
         stage = self._triage_stage(state_data)
 
-        # Choose attributes based on stage
+        # Choose attributes based on stage (no intermediate)
         if stage == "current":
             session_duration = int(state_data.get("current_session_duration", 0))
             session_avg_flow = float(state_data.get("current_session_average_flow", 0.0))
             session_hot_pct = float(state_data.get("current_session_hot_water_pct", 0.0))
-        elif stage == "intermediate":
-            session_duration = int(state_data.get("intermediate_session_duration", 0))
-            session_avg_flow = float(state_data.get("intermediate_session_average_flow", 0.0))
-            session_hot_pct = float(state_data.get("intermediate_session_hot_water_pct", 0.0))
         else:
             session_duration = int(state_data.get("last_session_duration", 0))
             session_avg_flow = float(state_data.get("last_session_average_flow", 0.0))
@@ -504,23 +516,20 @@ class CurrentSessionVolumeSensor(SensorEntity):
             # Instantaneous and debug
             "flow_sensor_value": state_data.get("flow_sensor_value", 0.0),
             "current_session_active": state_data.get("current_session_active", False),
-            "intermediate_session_exists": state_data.get("intermediate_session_exists", False),
             "debug_state": state_data.get("debug_state", "UNKNOWN"),
-            # Raw values (for transparency and UI experimentation)
+            # Raw current and last values (no intermediate)
             "current_session_volume": state_data.get("current_session_volume", 0.0),
             "current_session_duration": state_data.get("current_session_duration", 0),
             "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
             "current_session_hot_water_pct": state_data.get("current_session_hot_water_pct", 0.0),
-            "intermediate_session_volume": state_data.get("intermediate_session_volume", 0.0),
-            "intermediate_session_duration": state_data.get("intermediate_session_duration", 0),
-            "intermediate_session_average_flow": state_data.get("intermediate_session_average_flow", 0.0),
-            "intermediate_session_hot_water_pct": state_data.get("intermediate_session_hot_water_pct", 0.0),
             "last_session_volume": state_data.get("last_session_volume", 0.0),
             "last_session_duration": state_data.get("last_session_duration", 0),
             "last_session_average_flow": state_data.get("last_session_average_flow", 0.0),
             "last_session_hot_water_pct": state_data.get("last_session_hot_water_pct", 0.0),
-            # Also surface the unit currently in use
+            # Units
             "volume_unit": unit,
+            "flow_unit": state_data.get("flow_unit"),
+            "unit_of_measurement": unit,
         }
 
         # Update state (rounded to 2 decimals)

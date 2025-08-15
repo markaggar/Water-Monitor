@@ -8,6 +8,26 @@ input_number:
     max: 10
     step: 0.1
 
+  sim_tank_leak_base:
+    name: Sim Tank Leak Base (gpm)
+    min: 0
+    max: 2
+    step: 0.01
+    initial: 0.2
+
+  sim_tank_leak_last_jitter:
+    name: Sim Tank Leak Last Jitter (gpm)
+    min: -1
+    max: 1
+    step: 0.001
+    initial: 0
+
+input_boolean:
+  sim_random_usage_enabled:
+    name: Sim Random Usage Enabled
+  sim_tank_leak_active:
+    name: Sim Tank Leak Active
+
 template:
   - trigger:
       - platform: time_pattern
@@ -33,6 +53,113 @@ sensor:
     round: 3
 
 script:
+  sim_adjust_flow:
+    alias: Adjust Simulated Flow by Delta (gpm)
+    mode: queued
+    fields:
+      delta:
+        description: Signed delta in gpm
+        example: 0.6
+    sequence:
+      - variables:
+          new_val: >-
+            {{ (states('input_number.water_test_flow_gpm')|float(0) + (delta|float)) | max(0) | round(3) }}
+      - service: input_number.set_value
+        data:
+          value: "{{ new_val }}"
+        target:
+          entity_id: input_number.water_test_flow_gpm
+
+  sim_event_faucet:
+    alias: Simulate Faucet (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 0.6
+          dur_s: "{{ range(5, 61) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
+  sim_event_shower:
+    alias: Simulate Shower (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 2.2
+          dur_s: "{{ range(180, 901) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
+  sim_event_washer:
+    alias: Simulate Washing Machine (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 2.5
+          dur_s: "{{ range(120, 601) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
+  sim_event_toilet:
+    alias: Simulate Toilet Flush (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 1.6
+          dur_s: "{{ range(5, 13) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
+  sim_event_dishwasher:
+    alias: Simulate Dishwasher (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 1.2
+          dur_s: "{{ range(60, 301) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
+  sim_event_irrigation:
+    alias: Simulate Irrigation (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: 3.5
+          dur_s: "{{ range(600, 2401) | random }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (delta|float) }}"
+
   sim_flow_stop:
     alias: Stop Simulated Flow
     sequence:
@@ -66,6 +193,36 @@ script:
       - delay: "00:08:00"
       - service: script.sim_flow_stop
 
+  sim_tank_leak_start:
+    alias: Start Simulated Tank Leak
+    mode: restart
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_tank_leak_active
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ states('input_number.sim_tank_leak_base')|float(0.2) }}"
+
+  sim_tank_leak_stop:
+    alias: Stop Simulated Tank Leak
+    mode: restart
+    sequence:
+      - variables:
+          base: "{{ states('input_number.sim_tank_leak_base')|float(0.2) }}"
+          last: "{{ states('input_number.sim_tank_leak_last_jitter')|float(0) }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ -1 * (base + last) }}"
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.sim_tank_leak_last_jitter
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_tank_leak_active
+
   sim_seed_baselines:
     alias: Seed Water Monitor Baselines (14 days)
     sequence:
@@ -88,3 +245,71 @@ automation:
         data:
           level: info
           message: "Intelligent Leak Update: {{ attrs }}"
+
+  - id: sim_random_usage_scheduler
+    alias: Simulate Random Household Usage (scheduler)
+    mode: parallel
+    trigger:
+      - platform: time_pattern
+        seconds: "/5"
+    condition:
+      - condition: state
+        entity_id: input_boolean.sim_random_usage_enabled
+        state: "on"
+    action:
+      - variables:
+          r_faucet: "{{ range(1,101)|random }}"       # ~8%/tick
+          r_toilet: "{{ range(1,101)|random }}"       # ~2%/tick
+          r_dish:   "{{ range(1,101)|random }}"       # ~1%/tick
+          r_washer: "{{ range(1,301)|random }}"       # ~0.33%/tick
+          r_shower: "{{ range(1,301)|random }}"       # ~0.33%/tick
+          r_irrig:  "{{ range(1,601)|random }}"       # ~0.17%/tick
+      - choose:
+          - conditions: "{{ r_faucet <= 8 }}"
+            sequence:
+              - service: script.sim_event_faucet
+      - choose:
+          - conditions: "{{ r_toilet <= 2 }}"
+            sequence:
+              - service: script.sim_event_toilet
+      - choose:
+          - conditions: "{{ r_dish <= 1 }}"
+            sequence:
+              - service: script.sim_event_dishwasher
+      - choose:
+          - conditions: "{{ r_washer <= 1 }}"
+            sequence:
+              - service: script.sim_event_washer
+      - choose:
+          - conditions: "{{ r_shower <= 1 }}"
+            sequence:
+              - service: script.sim_event_shower
+      - choose:
+          - conditions: "{{ r_irrig <= 1 }}"
+            sequence:
+              - service: script.sim_event_irrigation
+
+  - id: sim_tank_leak_jitter
+    alias: Simulated Tank Leak Jitter
+    mode: queued
+    trigger:
+      - platform: time_pattern
+        seconds: "/15"
+    condition:
+      - condition: state
+        entity_id: input_boolean.sim_tank_leak_active
+        state: "on"
+    action:
+      - variables:
+          # jitter range +/- 0.05 gpm
+          new: "{{ ((range(-50, 51)|random)|float) / 1000.0 * 1.0 }}"  # -0.05..0.05 in steps of 0.001
+          old: "{{ states('input_number.sim_tank_leak_last_jitter')|float(0) }}"
+          adj: "{{ (new|float) - (old|float) }}"
+      - service: script.sim_adjust_flow
+        data:
+          delta: "{{ adj }}"
+      - service: input_number.set_value
+        data:
+          value: "{{ new }}"
+        target:
+          entity_id: input_number.sim_tank_leak_last_jitter

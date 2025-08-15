@@ -258,6 +258,19 @@ script:
           include_irrigation: true
 
 automation:
+  - id: sim_reset_flow_on_start
+    alias: Reset Sim Flow to 0 on HA Start
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.water_test_flow_gpm
+
   - id: water_monitor_sim_log_on_update_integ
     alias: Log Intelligent Leak Attributes (Integration volume)
     mode: queued

@@ -3,7 +3,8 @@ param(
     [string]$PackagesDest = "\\10.0.0.55\config\packages",
     [string]$VerifyEntity,
     [switch]$DumpErrorLog,
-    [switch]$DumpErrorLogOnFail
+    [switch]$DumpErrorLogOnFail,
+    [switch]$FailOnNoRestart
 )
 
 # Resolve repo root relative to this script
@@ -15,6 +16,9 @@ $src = Join-Path $repoRoot "custom_components\water_monitor"
 $script:wmFail = $false
 $componentCopied = $false
 $packagesCopied = $false
+$restartAttempted = $false
+$restartAccepted = $false
+$sawDowntime = $false
 
 Write-Host "Deploying Water Monitor from: $src" -ForegroundColor Cyan
 Write-Host "To: $DestPath" -ForegroundColor Cyan
@@ -165,6 +169,8 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         Write-Host "Requesting HA Core restart via REST: $uri" -ForegroundColor Cyan
         $resp = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop
         Write-Host "HA restart requested (HTTP $($resp.StatusCode))." -ForegroundColor Green
+        $restartAttempted = $true
+        if ($resp.StatusCode -in 200,202) { $restartAccepted = $true }
     } catch {
         $msg = $_.Exception.Message
         $status = $null
@@ -173,14 +179,18 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         # Treat 502/504 or connection refused as expected during restart
         if ($status -in 502,504 -or $msg -match 'actively refused') {
             Write-Host "Restart likely in progress; HA may be temporarily unavailable." -ForegroundColor Yellow
+            $restartAttempted = $true
         } else {
             # Retry once after 2s for transient issues
             Start-Sleep -Seconds 2
             try {
                 $resp2 = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop
                 Write-Host "HA restart requested on retry (HTTP $($resp2.StatusCode))." -ForegroundColor Green
+                $restartAttempted = $true
+                if ($resp2.StatusCode -in 200,202) { $restartAccepted = $true }
             } catch {
                 Write-Warning "HA restart retry failed: $($_.Exception.Message)"
+                $restartAttempted = $true
             }
         }
     }
@@ -202,7 +212,8 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
                 break
             }
         } catch {
-            # ignore until timeout
+            # Any exception here suggests downtime; note it and continue polling
+            $sawDowntime = $true
         }
         Start-Sleep -Seconds $interval
         $elapsed += $interval
@@ -210,6 +221,13 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     if (-not $back) {
         Write-Warning "HA did not respond with HTTP 200 within $maxWait s; it may still be restarting."
     if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'restart did not return 200 in time' }
+    }
+
+    # If we requested a restart but never observed downtime, warn (and optionally fail)
+    if ($restartAttempted -and -not $sawDowntime) {
+        Write-Warning "No downtime observed after restart request; restart likely did not occur."
+        if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'restart likely failed (no downtime observed)' }
+        if ($FailOnNoRestart) { $script:wmFail = $true }
     }
 
     # Optional: verify a specific entity becomes available

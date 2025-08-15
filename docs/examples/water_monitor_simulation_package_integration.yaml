@@ -61,12 +61,12 @@ script:
         description: Signed delta in gpm
         example: 0.6
     sequence:
-    - variables:
-      cand: "{{ states('input_number.water_test_flow_gpm')|float(0) + (delta|float) }}"
-      nonneg: "{{ [ cand|float, 0 ] | max }}"
-      maxval: "{{ state_attr('input_number.water_test_flow_gpm','max')|float(50) }}"
-      new_val: "{{ [ nonneg|float, maxval ] | min | round(3) }}"
-    - service: input_number.set_value
+      - variables:
+          cand: "{{ states('input_number.water_test_flow_gpm')|float(0) + (delta|float) }}"
+          nonneg: "{{ [ cand|float, 0 ] | max }}"
+          maxval: "{{ state_attr('input_number.water_test_flow_gpm','max')|float(50) }}"
+          new_val: "{{ [ nonneg|float, maxval ] | min | round(3) }}"
+      - service: input_number.set_value
         data:
           value: "{{ new_val }}"
         target:

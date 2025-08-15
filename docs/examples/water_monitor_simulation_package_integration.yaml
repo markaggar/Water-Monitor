@@ -101,19 +101,31 @@ script:
           delta: "{{ -1 * (delta|float) }}"
 
   sim_event_washer:
-    alias: Simulate Washing Machine (random duration)
+    alias: Simulate Washing Machine (bursty fills)
     mode: parallel
     sequence:
       - variables:
-          delta: 2.5
-          dur_s: "{{ range(120, 601) | random }}"
-      - service: script.sim_adjust_flow
-        data:
-          delta: "{{ delta }}"
-      - delay: "{{ dur_s }}s"
-      - service: script.sim_adjust_flow
-        data:
-          delta: "{{ -1 * (delta|float) }}"
+          # HE washer ~12–20 gal per cycle; model 3–4 fill bursts at ~2.5 gpm
+          bursts: "{{ 3 if (range(1,101)|random) <= 65 else 4 }}"
+      - repeat:
+          count: "{{ bursts | int(3) }}"
+          sequence:
+            - variables:
+                delta: 2.5
+                dur_s: "{{ range(60, 121) | random }}"  # 1–2 minutes per fill
+            - service: script.sim_adjust_flow
+              data:
+                delta: "{{ delta }}"
+            - delay: "{{ dur_s }}s"
+            - service: script.sim_adjust_flow
+              data:
+                delta: "{{ -1 * (delta|float) }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ not repeat.last }}"
+                  sequence:
+                    - delay: "{{ range(180, 481) | random }}s"  # 3–8 minutes between fills
 
   sim_event_toilet:
     alias: Simulate Toilet Flush (random duration)
@@ -131,19 +143,31 @@ script:
           delta: "{{ -1 * (delta|float) }}"
 
   sim_event_dishwasher:
-    alias: Simulate Dishwasher (random duration)
+    alias: Simulate Dishwasher (bursty, efficient)
     mode: parallel
     sequence:
       - variables:
-          delta: 1.2
-          dur_s: "{{ range(60, 301) | random }}"
-      - service: script.sim_adjust_flow
-        data:
-          delta: "{{ delta }}"
-      - delay: "{{ dur_s }}s"
-      - service: script.sim_adjust_flow
-        data:
-          delta: "{{ -1 * (delta|float) }}"
+          # Efficient dishwasher ~3–5 gal per cycle; model as 2–3 short fill bursts
+          bursts: "{{ 2 if (range(1,101)|random) <= 70 else 3 }}"
+      - repeat:
+          count: "{{ bursts | int(2) }}"
+          sequence:
+            - variables:
+                delta: 1.2
+                dur_s: "{{ range(45, 121) | random }}"  # 45–120 seconds per fill
+            - service: script.sim_adjust_flow
+              data:
+                delta: "{{ delta }}"
+            - delay: "{{ dur_s }}s"
+            - service: script.sim_adjust_flow
+              data:
+                delta: "{{ -1 * (delta|float) }}"
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ not repeat.last }}"
+                  sequence:
+                    - delay: "{{ range(300, 901) | random }}s"  # 5–15 minutes between fills
 
   sim_event_irrigation:
     alias: Simulate Irrigation (random duration)
@@ -173,13 +197,13 @@ script:
     alias: Start Simulated Leak (0.2 gpm for 20 min)
     mode: restart
     sequence:
-      - service: input_number.set_value
+      - service: script.sim_adjust_flow
         data:
-          value: 0.2
-        target:
-          entity_id: input_number.water_test_flow_gpm
+          delta: 0.2
       - delay: "00:20:00"
-      - service: script.sim_flow_stop
+      - service: script.sim_adjust_flow
+        data:
+          delta: -0.2
 
   sim_normal_shower:
     alias: Simulate Normal Shower (2.2 gpm for 8 min)

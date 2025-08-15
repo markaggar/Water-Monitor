@@ -5,7 +5,7 @@ input_number:
   water_test_flow_gpm:
     name: Water Test Flow (gpm)
     min: 0
-  max: 50
+    max: 50
     step: 0.1
 
   sim_tank_leak_base:

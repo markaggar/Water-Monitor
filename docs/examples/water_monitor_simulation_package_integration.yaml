@@ -5,7 +5,7 @@ input_number:
   water_test_flow_gpm:
     name: Water Test Flow (gpm)
     min: 0
-    max: 10
+  max: 50
     step: 0.1
 
   sim_tank_leak_base:
@@ -64,9 +64,9 @@ script:
     - variables:
       cand: "{{ states('input_number.water_test_flow_gpm')|float(0) + (delta|float) }}"
       nonneg: "{{ [ cand|float, 0 ] | max }}"
-      maxval: "{{ state_attr('input_number.water_test_flow_gpm','max')|float(10) }}"
+      maxval: "{{ state_attr('input_number.water_test_flow_gpm','max')|float(50) }}"
       new_val: "{{ [ nonneg|float, maxval ] | min | round(3) }}"
-      - service: input_number.set_value
+    - service: input_number.set_value
         data:
           value: "{{ new_val }}"
         target:

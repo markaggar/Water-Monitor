@@ -265,27 +265,39 @@ automation:
           r_shower: "{{ range(1,301)|random }}"       # ~0.33%/tick
           r_irrig:  "{{ range(1,601)|random }}"       # ~0.17%/tick
       - choose:
-          - conditions: "{{ r_faucet <= 8 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_faucet | int(0)) <= 8 }}"
             sequence:
               - service: script.sim_event_faucet
       - choose:
-          - conditions: "{{ r_toilet <= 2 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_toilet | int(0)) <= 2 }}"
             sequence:
               - service: script.sim_event_toilet
       - choose:
-          - conditions: "{{ r_dish <= 1 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_dish | int(0)) <= 1 }}"
             sequence:
               - service: script.sim_event_dishwasher
       - choose:
-          - conditions: "{{ r_washer <= 1 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_washer | int(0)) <= 1 }}"
             sequence:
               - service: script.sim_event_washer
       - choose:
-          - conditions: "{{ r_shower <= 1 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_shower | int(0)) <= 1 }}"
             sequence:
               - service: script.sim_event_shower
       - choose:
-          - conditions: "{{ r_irrig <= 1 }}"
+          - conditions:
+              - condition: template
+                value_template: "{{ (r_irrig | int(0)) <= 1 }}"
             sequence:
               - service: script.sim_event_irrigation
 

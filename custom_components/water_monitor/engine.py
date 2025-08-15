@@ -543,6 +543,24 @@ class WaterMonitorEngine:
                 flow = random.uniform(0.2, 0.8)
                 hot = random.uniform(0.0, 40.0)
                 add_session(base_day.replace(hour=hr) + timedelta(minutes=random.randint(0, 59)), dur, flow, hot)
+            # Toilets (6-14), more likely in morning and evening; realistic 2.5–4.0 gpm for ~15–40s
+            # Optional reflush once after 30–120s with shorter duration
+            for _ in range(random.randint(6, 14)):
+                # Weight morning/evening hours higher
+                hours = [6, 7, 8, 9, 17, 18, 19, 20, 21, 22, 10, 11, 12, 13, 14, 15, 16, 23]
+                weights = [8, 8, 8, 5, 8, 8, 8, 7, 6, 5, 3, 3, 3, 3, 3, 3, 3, 2]
+                hr = random.choices(hours, weights=weights, k=1)[0]
+                base_min = random.randint(0, 59)
+                dur = random.randint(15, 40)
+                flow = random.uniform(2.5, 4.0)
+                hot = 0.0
+                start_dt = base_day.replace(hour=hr) + timedelta(minutes=base_min)
+                add_session(start_dt, dur, flow, hot)
+                # ~30% chance of a near-term second fill (reflush/top-off)
+                if random.random() < 0.30:
+                    re_dur = random.randint(10, 25)
+                    re_delay = random.randint(30, 120)
+                    add_session(start_dt + timedelta(seconds=re_delay), re_dur, flow, hot)
             # Dishwasher (0-1)
             if random.random() < 0.6:
                 hr = random.choice([20, 21, 22])

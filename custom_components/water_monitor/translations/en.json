@@ -16,11 +16,18 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
-          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
-          "include_synthetic_in_engine": "Include synthetic flow in engine",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow",
+        "description": "Optional test-only synthetic flow controls.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
         }
       },
       "intelligent": {
@@ -98,11 +105,18 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
-          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
-          "include_synthetic_in_engine": "Include synthetic flow in engine",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow options",
+        "description": "Adjust synthetic flow behavior.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
         }
       },
       "intelligent": {

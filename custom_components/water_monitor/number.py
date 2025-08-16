@@ -8,18 +8,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_SENSOR_PREFIX
+from .const import DOMAIN, CONF_SENSOR_PREFIX, CONF_SYNTHETIC_ENABLE
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     # Create expected baseline and leak sensitivity controls per entry
-    async_add_entities([
-        ExpectedBaselineNumber(entry),
-        LeakSensitivityNumber(entry),
-    SyntheticFlowNumber(entry),
-    ])
+    entities = [ExpectedBaselineNumber(entry), LeakSensitivityNumber(entry)]
+    ex = {**entry.data, **entry.options}
+    if bool(ex.get(CONF_SYNTHETIC_ENABLE, False)):
+        entities.append(SyntheticFlowNumber(entry))
+    async_add_entities(entities)
 
 
 class ExpectedBaselineNumber(NumberEntity):

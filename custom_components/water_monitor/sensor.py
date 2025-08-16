@@ -29,8 +29,8 @@ from .const import (
     UPDATE_INTERVAL,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
+    CONF_SYNTHETIC_ENABLE,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
-    CONF_INCLUDE_SYNTHETIC_IN_ENGINE,
 )
 from .const import tracker_signal
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -58,8 +58,8 @@ async def async_setup_entry(
     session_continuity_window = int(_get(CONF_SESSION_CONTINUITY_WINDOW, 3))
     sessions_use_baseline_as_zero = bool(_get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, True))
     sessions_idle_to_close_s = int(_get(CONF_SESSIONS_IDLE_TO_CLOSE_S, 10))
-    include_synth_in_detectors = bool(_get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, False))
-    include_synth_in_engine = bool(_get(CONF_INCLUDE_SYNTHETIC_IN_ENGINE, False))
+    synthetic_master = bool(_get(CONF_SYNTHETIC_ENABLE, False))
+    include_synth_in_detectors = bool(_get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, False)) and synthetic_master
     sensor_prefix = _get(CONF_SENSOR_PREFIX, config_entry.title or "Water Monitor")
 
     main_sensor = WaterSessionSensor(
@@ -74,7 +74,7 @@ async def async_setup_entry(
     sessions_use_baseline_as_zero=sessions_use_baseline_as_zero,
     sessions_idle_to_close_s=sessions_idle_to_close_s,
     include_synth_in_detectors=include_synth_in_detectors,
-    include_synth_in_engine=include_synth_in_engine,
+    include_synth_in_engine=synthetic_master,
         name=f"{sensor_prefix} Last session volume",
         unique_suffix="last_session",
     )
@@ -389,7 +389,14 @@ class WaterSessionSensor(SensorEntity):
             engine_flow = effective_flow + (synthetic if self._include_synth_in_engine else 0.0)
             detectors_flow = effective_flow + (synthetic if self._include_synth_in_detectors else 0.0)
 
-        # Integrate synthetic flow into volume when included for engine so session volume reflects it
+            # If a new session is about to start (based on previous active flag),
+            # reset the synthetic accumulator BEFORE computing adjusted volume so the
+            # session baseline doesn't include synthetic from the prior session.
+            if self._include_synth_in_engine and engine_flow > 0.0 and not self._prev_session_active:
+                self._synthetic_volume_added = 0.0
+                self._last_synth_update = current_time
+
+    # Integrate synthetic flow into volume when included for engine so session volume reflects it
             adjusted_volume_total = volume_total
             try:
                 if self._include_synth_in_engine:
@@ -446,6 +453,8 @@ class WaterSessionSensor(SensorEntity):
             state_data["synthetic_flow_gpm"] = float(synthetic)
             state_data["flow_used_by_engine"] = float(engine_flow)
             state_data["detectors_flow"] = float(detectors_flow)
+            # Back-compat name used by detectors; reflects detectors_flow
+            state_data["flow_sensor_value"] = float(detectors_flow)
             state_data["synthetic_volume_added"] = float(self._synthetic_volume_added)
 
             # Update this entity's state and attributes (last completed session volume)

@@ -27,10 +27,12 @@ CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"
 CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"
 
 # Synthetic flow handling
-# When False (default), detectors should ignore synthetic flow for decisions
-# and engine should ignore synthetic when learning baselines.
+# Master enable; when False, synthetic isn't used anywhere even if sub-options are set.
+CONF_SYNTHETIC_ENABLE = "synthetic_enable"
+# Detectors may optionally include synthetic in their decisions.
 CONF_INCLUDE_SYNTHETIC_IN_DETECTORS = "include_synthetic_in_detectors"
-CONF_INCLUDE_SYNTHETIC_IN_ENGINE = "include_synthetic_in_engine"
+# Daily analysis may optionally include synthetic in totals.
+CONF_INCLUDE_SYNTHETIC_IN_DAILY = "include_synthetic_in_daily"
 
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
@@ -73,9 +75,10 @@ DEFAULTS = {
     # Intelligent detector defaults
     CONF_INTEL_DETECT_ENABLE: False,
     CONF_INTEL_LEARNING_ENABLE: True,
-    # Synthetic handling defaults (opt-in to include synthetic)
+    # Synthetic handling defaults
+    CONF_SYNTHETIC_ENABLE: False,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,
-    CONF_INCLUDE_SYNTHETIC_IN_ENGINE: False,
+    CONF_INCLUDE_SYNTHETIC_IN_DAILY: False,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

@@ -456,7 +456,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self._hot_water_entity_id = hot_water_entity_id or None
 
         self._unsub_state = None
-        self._last_ok: dict[str, Optional[datetime]] = {}
+        self._last_ok = {}
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -619,6 +619,9 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
 
         self._unsub_state = None
         self._unsub_timer = None
+        # Track detectors_flow provided by the tracker (includes synthetic when enabled)
+        self._tracker_unsub = None
+        self._last_detectors_flow = None
 
         # Runtime counters
         self._seeded = False
@@ -626,8 +629,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._count_progress = 0.0
         self._idle_zero_s = 0.0
         self._high_flow_s = 0.0
-        self._last_update: Optional[datetime] = None
-        self._cooldown_until: Optional[datetime] = None
+        self._last_update = None
+        self._cooldown_until = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -646,10 +649,15 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._last_update = datetime.now(timezone.utc)
         self.async_write_ha_state()
 
+        # Subscribe both to raw flow entity (for availability) and tracker for detectors flow
         if self._flow_entity_id:
             self._unsub_state = async_track_state_change_event(
                 self.hass, [self._flow_entity_id], self._async_flow_changed
             )
+        # Tracker subscription provides detectors_flow (includes synthetic when enabled)
+        self._tracker_unsub = async_dispatcher_connect(
+            self.hass, tracker_signal(self._entry.entry_id), self._on_tracker_update
+        )
         # Periodic to advance clocks
         self._unsub_timer = async_track_time_interval(
             self.hass, self._async_tick, timedelta(seconds=UPDATE_INTERVAL)
@@ -659,6 +667,9 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
+        if self._tracker_unsub:
+            self._tracker_unsub()
+            self._tracker_unsub = None
         if self._unsub_timer:
             self._unsub_timer()
             self._unsub_timer = None
@@ -673,6 +684,12 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         await self._evaluate(now)
 
     def _current_flow(self) -> Optional[float]:
+        # Prefer detectors flow from tracker when available; fall back to raw entity
+        if self._last_detectors_flow is not None:
+            try:
+                return float(self._last_detectors_flow)
+            except Exception:
+                return 0.0
         st = self.hass.states.get(self._flow_entity_id) if self._flow_entity_id else None
         if not st or st.state in (None, "unknown", "unavailable"):
             return None
@@ -680,6 +697,15 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             return float(st.state)
         except (ValueError, TypeError):
             return None
+
+    @callback
+    def _on_tracker_update(self, state: dict) -> None:
+        try:
+            df = state.get("detectors_flow")
+            if isinstance(df, (int, float)):
+                self._last_detectors_flow = float(df)
+        except Exception:
+            pass
 
     async def _evaluate(self, now: datetime) -> None:
         if self._last_update is None:

@@ -18,6 +18,8 @@ from .const import (
     CONF_OCC_MODE_ENTITY,
     CONF_OCC_STATE_AWAY,
     CONF_OCC_STATE_VACATION,
+    CONF_SYNTHETIC_ENABLE,
+    CONF_INCLUDE_SYNTHETIC_IN_DAILY,
     engine_signal,
 )
 
@@ -36,7 +38,9 @@ class SessionRecord:
     duration_s: int
     avg_flow: float
     hot_pct: float
+    # Defaults must come after non-defaults
     gaps: int = 0
+    synth_volume: float = 0.0
     # Context at (approx) end time
     occ_raw: Optional[str] = None
     occ_class: Optional[str] = None  # home | away | vacation | night
@@ -155,6 +159,7 @@ class WaterMonitorEngine:
         rec = SessionRecord(
             ended_at=ended_at,
             volume=round(vol_eff, 6),
+            synth_volume=round(max(0.0, synth), 6),
             duration_s=int(dur),
             avg_flow=round(avg, 6),
             hot_pct=round(hot_pct, 2),
@@ -200,7 +205,13 @@ class WaterMonitorEngine:
             if _day_key(dt) == y_key:
                 day_sessions.append(rec)
 
-        total_vol = sum(s.volume for s in day_sessions)
+        # Daily totals: optionally include synthetic when configured.
+        include_synth_daily = bool(self._config.get(CONF_SYNTHETIC_ENABLE, False) and self._config.get(CONF_INCLUDE_SYNTHETIC_IN_DAILY, False))
+        total_vol = 0.0
+        for s in day_sessions:
+            base = float(s.volume or 0.0)
+            add = float(s.synth_volume or 0.0) if include_synth_daily else 0.0
+            total_vol += base + add
         session_count = len(day_sessions)
         avg_dur = mean([s.duration_s for s in day_sessions]) if day_sessions else 0.0
         avg_hot = mean([s.hot_pct for s in day_sessions]) if day_sessions else 0.0

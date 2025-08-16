@@ -658,10 +658,12 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._tracker_unsub = async_dispatcher_connect(
             self.hass, tracker_signal(self._entry.entry_id), self._on_tracker_update
         )
-        # Periodic to advance clocks
+        # Periodic to advance clocks; start conservative (5s) until activity dictates
         self._unsub_timer = async_track_time_interval(
-            self.hass, self._async_tick, timedelta(seconds=UPDATE_INTERVAL)
+            self.hass, self._async_tick, timedelta(seconds=5)
         )
+        self._tick_interval_s = 5
+        self._recent_counting_hysteresis_s = 0.0
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub_state:
@@ -724,7 +726,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         else:  # IN_RANGE or BASELINE treated similarly for now
             counting_active = flow > 0.0 and (self._max_low_flow <= 0.0 or flow <= self._max_low_flow)
 
-        # Seed and count progression
+    # Seed and count progression
         if counting_active:
             # zero-idle resets while active
             self._idle_zero_s = 0.0
@@ -755,6 +757,28 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                 self._seed_progress = 0.0
             else:
                 self._count_progress = 0.0
+
+        # Adjust cadence with brief hysteresis
+        desired = 1 if (counting_active or self._attr_is_on) else 5
+        # Remember recent counting for 3s to avoid flapping
+        if counting_active:
+            self._recent_counting_hysteresis_s = 3.0
+        else:
+            if self._recent_counting_hysteresis_s > 0:
+                self._recent_counting_hysteresis_s = max(0.0, self._recent_counting_hysteresis_s - dt)
+                if self._recent_counting_hysteresis_s > 0:
+                    desired = 1
+        if desired != getattr(self, "_tick_interval_s", 5):
+            # Resubscribe with new interval
+            try:
+                if self._unsub_timer:
+                    self._unsub_timer()
+            except Exception:
+                pass
+            self._tick_interval_s = desired
+            self._unsub_timer = async_track_time_interval(
+                self.hass, self._async_tick, timedelta(seconds=self._tick_interval_s)
+            )
 
         # Clear conditions
         cleared = False

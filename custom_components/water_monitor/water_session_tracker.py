@@ -31,13 +31,11 @@ class WaterSessionTracker:
         self,
         min_session_volume: float = 0.0,
         min_session_duration: int = 0,
-        session_gap_tolerance: int = 5,
-        session_continuity_window: int = 3,
+    session_gap_tolerance: int = 5,
     ):
         self.min_session_volume = min_session_volume
         self.min_session_duration = min_session_duration
         self.session_gap_tolerance = session_gap_tolerance
-        self.session_continuity_window = session_continuity_window
         
         # Current state
         self.flow_rate = 0.0
@@ -70,7 +68,7 @@ class WaterSessionTracker:
         self._intermediate_volume = 0.0
         self._intermediate_hot_water_duration = 0
         
-        # Session continuation tracking
+    # Session end candidate tracking (gap-based finalization)
         self._session_end_candidate_time: Optional[datetime] = None
         
         # Last completed session
@@ -162,13 +160,8 @@ class WaterSessionTracker:
                 # Mark potential end start
                 self._session_end_candidate_time = timestamp
             else:
-                # Already in gap: check gap tolerance to confirm candidate end
-                if (
-                    self._session_end_candidate_time is not None
-                    and (timestamp - self._session_end_candidate_time).total_seconds() >= self.session_gap_tolerance
-                ):
-                    # gap tolerance exceeded; nothing else to do here — continuation window handled below
-                    pass
+                # Already in gap: let candidate timer run; finalization handled below
+                pass
 
         # If flow resumes during a gap
         if self._session_active and self.flow_rate > 0 and self._gap_active:
@@ -177,13 +170,13 @@ class WaterSessionTracker:
             # Reset the end candidate because session continues
             self._session_end_candidate_time = None
 
-        # If no flow and we have a candidate, check continuation window to finalize
+        # If no flow and we have a candidate, finalize once gap tolerance elapses
         if (
             self._session_active
             and self.flow_rate == 0
             and self._session_end_candidate_time is not None
         ):
-            if (timestamp - self._session_end_candidate_time).total_seconds() >= self.session_continuity_window:
+            if (timestamp - self._session_end_candidate_time).total_seconds() >= self.session_gap_tolerance:
                 # finalize session
                 start = self._current_session_start or timestamp
                 end = timestamp

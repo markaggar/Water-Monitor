@@ -24,7 +24,6 @@ from .const import (
     CONF_MIN_SESSION_VOLUME,
     CONF_MIN_SESSION_DURATION,
     CONF_SESSION_GAP_TOLERANCE,
-    CONF_SESSION_CONTINUITY_WINDOW,
     CONF_SENSOR_PREFIX,
     UPDATE_INTERVAL,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
@@ -55,7 +54,6 @@ async def async_setup_entry(
     min_session_volume = float(_get(CONF_MIN_SESSION_VOLUME, 0.0))
     min_session_duration = int(_get(CONF_MIN_SESSION_DURATION, 0))
     session_gap_tolerance = int(_get(CONF_SESSION_GAP_TOLERANCE, 5))
-    session_continuity_window = int(_get(CONF_SESSION_CONTINUITY_WINDOW, 3))
     sessions_use_baseline_as_zero = bool(_get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, True))
     sessions_idle_to_close_s = int(_get(CONF_SESSIONS_IDLE_TO_CLOSE_S, 10))
     synthetic_master = bool(_get(CONF_SYNTHETIC_ENABLE, False))
@@ -70,7 +68,6 @@ async def async_setup_entry(
         min_session_volume=min_session_volume,
         min_session_duration=min_session_duration,
         session_gap_tolerance=session_gap_tolerance,
-        session_continuity_window=session_continuity_window,
     sessions_use_baseline_as_zero=sessions_use_baseline_as_zero,
     sessions_idle_to_close_s=sessions_idle_to_close_s,
     include_synth_in_detectors=include_synth_in_detectors,
@@ -147,7 +144,7 @@ class WaterSessionSensor(SensorEntity):
         min_session_volume: float,
         min_session_duration: int,
         session_gap_tolerance: int,
-        session_continuity_window: int,
+        
         sessions_use_baseline_as_zero: bool,
         sessions_idle_to_close_s: int,
         include_synth_in_detectors: bool,
@@ -173,7 +170,7 @@ class WaterSessionSensor(SensorEntity):
             min_session_volume=min_session_volume,
             min_session_duration=min_session_duration,
             session_gap_tolerance=session_gap_tolerance,
-            session_continuity_window=session_continuity_window,
+            
         )
 
         # Session boundary tuning
@@ -200,12 +197,14 @@ class WaterSessionSensor(SensorEntity):
 
         # Periodic update tracking
         self._periodic_update_unsub = None
-        self._needs_periodic_updates = False
+        self._periodic_interval_s = None  # seconds, or None
 
         # Callbacks for dependent sensors (current session + metrics sensors)
         self._listeners = []
+        # Entities we may subscribe to for immediate updates
+        self._synthetic_entity_id = None
 
-    # Note: listeners are initialized per-instance in __init__
+        # Note: listeners are initialized per-instance in __init__
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -256,11 +255,32 @@ class WaterSessionSensor(SensorEntity):
         except Exception:  # registry may not be ready in unit tests
             self._baseline_entity_id = None
 
+        # Resolve Synthetic Flow number entity id (for instant updates when changed)
+        try:
+            reg = er.async_get(self.hass)
+            synth_uid = f"{self._entry.entry_id}_synthetic_flow_gpm"
+            for ent in er.async_entries_for_config_entry(reg, self._entry.entry_id):
+                if ent.unique_id == synth_uid and ent.domain == "number":
+                    self._synthetic_entity_id = ent.entity_id
+                    break
+        except Exception:
+            self._synthetic_entity_id = None
+
+        # Track flow/volume/hot-water changes
         if self._tracked_entities:
             self.async_on_remove(
                 async_track_state_change_event(
                     self.hass,
                     self._tracked_entities,
+                    self._async_sensor_changed,
+                )
+            )
+        # Track synthetic number changes (immediate refresh)
+        if self._synthetic_entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self._synthetic_entity_id],
                     self._async_sensor_changed,
                 )
             )
@@ -272,41 +292,54 @@ class WaterSessionSensor(SensorEntity):
         """Handle sensor state changes."""
         await self._async_update_from_sensors()
 
-    def _schedule_periodic_updates(self, reason: str):
-        """Schedule periodic updates when timing is critical."""
-        if self._periodic_update_unsub is None:
-            _LOGGER.debug("Starting periodic updates: %s", reason)
-            self._periodic_update_unsub = async_track_time_interval(
-                self.hass, self._async_periodic_update, timedelta(seconds=UPDATE_INTERVAL)
-            )
+    def _ensure_timer(self, interval_s: Optional[int], reason: str):
+        """Ensure a periodic timer is running at the desired interval; cancel if None."""
+        # If no interval requested, cancel any existing timer
+        if interval_s is None or interval_s <= 0:
+            if self._periodic_update_unsub is not None:
+                _LOGGER.debug("Stopping periodic updates: %s", reason)
+                self._periodic_update_unsub()
+                self._periodic_update_unsub = None
+                self._periodic_interval_s = None
+            return
+        # If the same interval is already active, nothing to do
+        if self._periodic_update_unsub is not None and self._periodic_interval_s == int(interval_s):
+            return
+        # Otherwise, (re)start timer at new interval
+        if self._periodic_update_unsub is not None:
+            try:
+                self._periodic_update_unsub()
+            except Exception:
+                pass
+            self._periodic_update_unsub = None
+        self._periodic_interval_s = int(interval_s)
+        _LOGGER.debug("Starting periodic updates every %ss: %s", self._periodic_interval_s, reason)
+        self._periodic_update_unsub = async_track_time_interval(
+            self.hass, self._async_periodic_update, timedelta(seconds=self._periodic_interval_s)
+        )
 
     def _cancel_periodic_updates(self, reason: str):
-        """Cancel periodic updates."""
-        if self._periodic_update_unsub is not None:
-            _LOGGER.debug("Stopping periodic updates: %s", reason)
-            self._periodic_update_unsub()
-            self._periodic_update_unsub = None
+        self._ensure_timer(None, reason)
 
     @callback
     async def _async_periodic_update(self, now: datetime) -> None:
         """Handle periodic updates for gap monitoring and session continuation."""
         await self._async_update_from_sensors()
 
-    def _should_use_periodic_updates(self, state_data: dict) -> tuple[bool, str]:
-        """Determine if periodic updates are needed based on current state."""
-        gap_active = state_data.get("gap_active", False)
-        session_active = state_data.get("current_session_active", False)
-        flow_rate = state_data.get("flow_sensor_value", 0.0)
-
-        # Always tick during an active session so duration/metrics progress
-        if session_active:
-            return True, "active session timing"
-        if gap_active:
-            return True, "gap monitoring"
-        if flow_rate == 0 and not gap_active:
-            # continuation/idle timing when not in a session
-            return True, "idle timing"
-        return False, "no timing operations needed"
+    def _apply_cadence(self, state_data: dict) -> None:
+        """Adaptive cadence: 5s during flow; 1s while gap at zero; none when idle."""
+        session_active = bool(state_data.get("current_session_active", False))
+        gap_active = bool(state_data.get("gap_active", False))
+        flow_used = float(state_data.get("flow_used_by_engine", 0.0))
+        if session_active and flow_used > 0.0:
+            # Predictable UI during active water usage
+            self._ensure_timer(5, "active session timing")
+        elif (not session_active) and gap_active and flow_used == 0.0:
+            # Tight loop to promptly finalize gaps
+            self._ensure_timer(1, "gap monitoring at zero flow")
+        else:
+            # Idle: cancel periodic updates (event-driven only)
+            self._ensure_timer(None, "idle - event driven")
 
     async def _async_update_from_sensors(self) -> None:
         """Update the sensor from tracked entities."""
@@ -508,14 +541,8 @@ class WaterSessionSensor(SensorEntity):
                 except Exception as err:
                     _LOGGER.exception("Listener update failed: %s", err)
 
-            # Decide periodic update scheduling
-            should_update, reason = self._should_use_periodic_updates(state_data)
-            if should_update and not self._needs_periodic_updates:
-                self._needs_periodic_updates = True
-                self._schedule_periodic_updates(reason)
-            elif not should_update and self._needs_periodic_updates:
-                self._needs_periodic_updates = False
-                self._cancel_periodic_updates(reason)
+            # Apply adaptive cadence based on state
+            self._apply_cadence(state_data)
 
             # Write state
             self.async_write_ha_state()

@@ -9,7 +9,6 @@ CONF_HOT_WATER_SENSOR = "hot_water_sensor"
 CONF_MIN_SESSION_VOLUME = "min_session_volume"
 CONF_MIN_SESSION_DURATION = "min_session_duration"
 CONF_SESSION_GAP_TOLERANCE = "session_gap_tolerance"
-CONF_SESSION_CONTINUITY_WINDOW = "session_continuity_window"
 CONF_SENSOR_PREFIX = "sensor_prefix"
 
 # Session boundary behavior
@@ -61,7 +60,6 @@ DEFAULTS = {
     CONF_MIN_SESSION_VOLUME: 0.0,
     CONF_MIN_SESSION_DURATION: 0,
     CONF_SESSION_GAP_TOLERANCE: 5,
-    CONF_SESSION_CONTINUITY_WINDOW: 3,
     CONF_SENSOR_PREFIX: "Water Monitor",
     # Session boundary behavior
     CONF_SESSIONS_USE_BASELINE_AS_ZERO: True,

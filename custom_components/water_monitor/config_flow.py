@@ -15,7 +15,6 @@ from .const import (
     CONF_MIN_SESSION_VOLUME,
     CONF_MIN_SESSION_DURATION,
     CONF_SESSION_GAP_TOLERANCE,
-    CONF_SESSION_CONTINUITY_WINDOW,
     CONF_SENSOR_PREFIX,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
@@ -147,9 +146,7 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_SESSION_GAP_TOLERANCE, default=ex.get(CONF_SESSION_GAP_TOLERANCE, DEFAULTS[CONF_SESSION_GAP_TOLERANCE]))] = s_int(
         min_=0, step=1
     )
-    fields[vol.Required(CONF_SESSION_CONTINUITY_WINDOW, default=ex.get(CONF_SESSION_CONTINUITY_WINDOW, DEFAULTS[CONF_SESSION_CONTINUITY_WINDOW]))] = s_int(
-        min_=0, step=1
-    )
+    # Continuity window removed; single-knob gap tolerance now governs finalization
     # Session boundary behavior
     fields[vol.Required(CONF_SESSIONS_USE_BASELINE_AS_ZERO, default=ex.get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, DEFAULTS[CONF_SESSIONS_USE_BASELINE_AS_ZERO]))] = s_bool()
     fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
@@ -472,7 +469,6 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_MIN_SESSION_VOLUME,
                 CONF_MIN_SESSION_DURATION,
                 CONF_SESSION_GAP_TOLERANCE,
-                CONF_SESSION_CONTINUITY_WINDOW,
                 CONF_SESSIONS_USE_BASELINE_AS_ZERO,
                 CONF_SESSIONS_IDLE_TO_CLOSE_S,
                 # Toggles displayed in this order

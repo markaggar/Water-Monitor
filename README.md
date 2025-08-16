@@ -10,7 +10,7 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
 
 - Intelligent session detection
   - Automatically detects water usage sessions from flow/volume sensors
-  - Smart gap handling and session continuation to avoid splitting single sessions
+  - Smart gap handling to avoid splitting single sessions
 - Session sensors
   - Last session volume: Most recently completed session with metadata (rounded to 2 decimals)
   - Current session volume: Real-time view during active use, shows the intermediate volume during gaps, and resets to 0 when a session ends (rounded to 2 decimals)
@@ -68,7 +68,6 @@ Setup page (step 1)
 - Minimum Session Volume
 - Minimum Session Duration (seconds)
 - Gap Tolerance (seconds)
-- Continuity Window (seconds)
 - Treat baseline threshold as zero for session end (checkbox)
 - Baseline idle to close session (seconds)
 - Create Low-flow leak sensor (checkbox)
@@ -177,8 +176,8 @@ Units
 ### Session detection
 1) Session starts when flow goes from 0 to >0
 2) Within-session gaps are tolerated up to Gap Tolerance
-3) After flow stops, the Continuity Window ensures short pauses don’t end the session prematurely
-4) The session finalizes after the continuity window elapses with no resumed flow
+3) After flow stops, the session remains open for the Gap Tolerance; if flow resumes within the tolerance, it’s one session
+4) The session finalizes once the gap tolerance elapses with no resumed flow
 5) The session is recorded if it meets minimum volume and duration thresholds
 
 Gap handling example
@@ -187,7 +186,7 @@ Flow: ████████░░░████████░████�
 Time: 0--5--10--15--20--25--30--35--40--45--50s
       │              │              │
       Session Start  │              Session End
-                     │              (gap + continuity elapsed)
+                     │              (gap tolerance elapsed)
                      Brief 2s gap
                      (within tolerance)
 ```
@@ -322,7 +321,7 @@ entities:
 - Adjust minimum volume/duration thresholds if needed
 
 ### Gaps not handled as expected
-- Tune Gap Tolerance and Continuity Window to your plumbing and sensor update frequency
+- Tune Gap Tolerance to your plumbing and sensor update frequency
 
 ### No entities created
 - Ensure flow/volume sensors are set

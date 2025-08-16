@@ -16,6 +16,8 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_engine": "Include synthetic flow in engine",
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
@@ -96,6 +98,8 @@
           "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_engine": "Include synthetic flow in engine",
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
@@ -154,6 +158,20 @@
         "data_description": {
           "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
+      }
+    }
+  }
+  ,
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Expected low-flow baseline"
+      },
+      "leak_sensitivity": {
+        "name": "Leak alert sensitivity"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Synthetic flow (gpm)"
       }
     }
   }

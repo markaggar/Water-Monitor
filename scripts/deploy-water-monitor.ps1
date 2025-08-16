@@ -122,6 +122,7 @@ if ([string]::IsNullOrWhiteSpace($baseUrl)) {
 
 if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhiteSpace($token)) {
     $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
+    $basicHeaders = @{ Authorization = "Bearer $token" }
     
     function Fetch-HAErrorLog {
         param([string]$why)
@@ -163,6 +164,64 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         Write-Host "HA API reachable (HTTP $($cfgResp.StatusCode))." -ForegroundColor DarkGray
     } catch {
         Write-Warning "HA API check failed: $($_.Exception.Message)"
+    }
+
+    # Preflight config check: try core/check; on 404, fallback to service + persistent notification probe
+    $configValid = $true
+    try {
+        $checkUri = "$baseUrl/api/config/core/check_config"
+        Write-Host "Running HA config check: $checkUri" -ForegroundColor DarkGray
+        $checkResp = Invoke-RestMethod -Method Post -Uri $checkUri -Headers $headers -TimeoutSec 60 -ErrorAction Stop
+        $result = $checkResp.result
+        if ($result -and $result.ToString().ToLower() -ne 'valid') {
+            $configValid = $false
+            $errs = $checkResp.errors
+            Write-Warning "Config check reported INVALID configuration. Details:" 
+            if ($errs) {
+                if ($errs -is [string]) { Write-Host $errs -ForegroundColor Yellow }
+                else { $errs | ConvertTo-Json -Depth 6 | Write-Host -ForegroundColor Yellow }
+            } else {
+                Write-Host ("(No 'errors' field in response) Raw: " + ($checkResp | ConvertTo-Json -Depth 6)) -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Config check PASSED." -ForegroundColor DarkGray
+        }
+    } catch {
+        $msg = $_.Exception.Message
+        $status = $null
+        if ($_.Exception.Response) { try { $status = $_.Exception.Response.StatusCode.value__ } catch {} }
+        if ($status -eq 404) {
+            Write-Host "Config core/check_config not available (404). Falling back to service: homeassistant.check_config" -ForegroundColor DarkGray
+            try {
+                $svcUri = "$baseUrl/api/services/homeassistant/check_config"
+                $svcResp = Invoke-RestMethod -Method Post -Uri $svcUri -Headers $basicHeaders -TimeoutSec 60 -ErrorAction Stop
+                # Give HA a moment to populate notifications
+                Start-Sleep -Seconds 2
+                # Probe invalid config persistent notification
+                $pnUri = "$baseUrl/api/states/persistent_notification.invalid_config"
+                $pn = $null
+                try { $pn = Invoke-RestMethod -Method Get -Uri $pnUri -Headers $basicHeaders -TimeoutSec 15 -ErrorAction Stop } catch {}
+                if ($pn) {
+                    $configValid = $false
+                    Write-Warning "Invalid configuration detected via persistent notification:"
+                    $msgTxt = $pn.attributes.message
+                    if ($msgTxt) { Write-Host $msgTxt -ForegroundColor Yellow } else { Write-Host ($pn | ConvertTo-Json -Depth 6) -ForegroundColor Yellow }
+                } else {
+                    Write-Host "No invalid_config notification found; assuming config OK." -ForegroundColor DarkGray
+                }
+            } catch {
+                Write-Warning "Fallback service check_config failed: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Warning "Config check call failed: $msg (HTTP $status). Proceeding to restart."
+        }
+    }
+
+    if (-not $configValid) {
+        if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'config check failed (pre-restart)' }
+        $script:wmFail = $true
+        Write-Host "Skipping restart due to invalid configuration." -ForegroundColor Yellow
+        return
     }
     $uri = "$baseUrl/api/services/homeassistant/restart"
     try {

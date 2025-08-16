@@ -176,7 +176,7 @@ template:
           dishwasher_gpm: "{{ states('input_number.sim_dw_gpm') }}"
           washer_gpm: "{{ states('input_number.sim_wm_gpm') }}"
           irrigation_gpm: "{{ states('input_number.sim_irrig_gpm') }}"
-      manual_gpm: "{{ states('input_number.water_test_flow_gpm') }}"
+          manual_gpm: "{{ states('input_number.water_test_flow_gpm') }}"
           leak_low_gpm: "{{ states('input_number.sim_leak_low_gpm') if is_state('input_boolean.sim_leak_low_active','on') else 0 }}"
           leak_high_gpm: "{{ states('input_number.sim_leak_high_gpm') if is_state('input_boolean.sim_leak_high_active','on') else 0 }}"
           leak_tank_gpm: >-
@@ -184,7 +184,7 @@ template:
           whats_on: >-
             {{
               [
-        'manual' if states('input_number.water_test_flow_gpm')|float(0) > 0 else None,
+                'manual' if states('input_number.water_test_flow_gpm')|float(0) > 0 else None,
                 'faucet' if states('input_number.sim_faucet_gpm')|float(0) > 0 else None,
                 'toilet' if states('input_number.sim_toilet_gpm')|float(0) > 0 else None,
                 'shower' if states('input_number.sim_shower_gpm')|float(0) > 0 else None,
@@ -214,7 +214,7 @@ script:
     sequence:
       - variables:
           delta: "{{ (range(5,11)|random) / 10.0 }}"  # 0.5–1.0 gpm
-          dur_s: "{{ range(5, 31) | random }}"
+          dur_s: "{{ range(5, 21) | random }}"  # 5–20s, shorter faucet bursts
       - service: input_boolean.turn_on
         target:
           entity_id: input_boolean.sim_faucet_active
@@ -239,7 +239,7 @@ script:
     sequence:
       - variables:
           flow: "{{ (range(25, 41)|random) / 10.0 }}"  # 2.5–4.0 gpm
-          dur_s: "{{ range(15, 41) | random }}"
+          dur_s: "{{ range(15, 41) | random }}"  # primary burst stays short
       - service: input_boolean.turn_on
         target:
           entity_id: input_boolean.sim_toilet_active
@@ -256,7 +256,7 @@ script:
             sequence:
               - variables:
                   re_dur: "{{ range(10, 26) | random }}"
-                  re_delay: "{{ range(30, 121) | random }}"
+                  re_delay: "{{ range(30, 91) | random }}"
               - service: input_number.set_value
                 target:
                   entity_id: input_number.sim_toilet_gpm
@@ -284,7 +284,7 @@ script:
     sequence:
       - variables:
           flow: 2.2
-          dur_s: "{{ range(240, 721) | random }}"  # 4–12 min
+          dur_s: "{{ range(240, 661) | random }}"  # 4–11 min (guard clears >13m)
       - service: input_boolean.turn_on
         target:
           entity_id: input_boolean.sim_shower_active
@@ -568,6 +568,114 @@ automation:
             - input_boolean.sim_leak_high_active
             - input_boolean.sim_tank_leak_active
             - input_boolean.sim_busy_gate
+
+  - id: sim_guard_faucet_max_duration
+    alias: "Sim Guard: Faucet max duration (auto-clear if >60s)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_faucet_gpm
+        above: 0
+        for: "00:01:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_faucet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_faucet_active
+
+  - id: sim_guard_toilet_max_duration
+    alias: "Sim Guard: Toilet max duration (auto-clear if >2m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_toilet_gpm
+        above: 0
+        for: "00:02:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_toilet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_toilet_active
+
+  - id: sim_guard_shower_max_duration
+    alias: "Sim Guard: Shower max duration (auto-clear if >13m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_shower_gpm
+        above: 0
+        for: "00:13:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_shower_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_shower_active
+
+  - id: sim_guard_dw_max_duration
+    alias: "Sim Guard: Dishwasher burst max duration (auto-clear if >5m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_dw_gpm
+        above: 0
+        for: "00:05:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_dw_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_dw_active
+
+  - id: sim_guard_wm_max_duration
+    alias: "Sim Guard: Washer burst max duration (auto-clear if >4m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_wm_gpm
+        above: 0
+        for: "00:04:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_wm_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_wm_active
+
+  - id: sim_guard_irrig_max_duration
+    alias: "Sim Guard: Irrigation max duration (auto-clear if >45m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_irrig_gpm
+        above: 0
+        for: "00:45:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_irrig_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_irrig_active
 
   - id: water_monitor_sim_log_on_update_integ
     alias: Log Intelligent Leak Attributes (Integration volume)

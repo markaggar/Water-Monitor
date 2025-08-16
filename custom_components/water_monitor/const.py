@@ -26,6 +26,12 @@ CONF_OCC_STATE_RETURNING = "occupancy_state_returning"
 CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"
 CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"
 
+# Synthetic flow handling
+# When False (default), detectors should ignore synthetic flow for decisions
+# and engine should ignore synthetic when learning baselines.
+CONF_INCLUDE_SYNTHETIC_IN_DETECTORS = "include_synthetic_in_detectors"
+CONF_INCLUDE_SYNTHETIC_IN_ENGINE = "include_synthetic_in_engine"
+
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
@@ -67,6 +73,9 @@ DEFAULTS = {
     # Intelligent detector defaults
     CONF_INTEL_DETECT_ENABLE: False,
     CONF_INTEL_LEARNING_ENABLE: True,
+    # Synthetic handling defaults (opt-in to include synthetic)
+    CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,
+    CONF_INCLUDE_SYNTHETIC_IN_ENGINE: False,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

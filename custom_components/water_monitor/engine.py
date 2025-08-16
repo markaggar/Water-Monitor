@@ -122,16 +122,27 @@ class WaterMonitorEngine:
         # Collection is lightweight; always enabled.
         vol = float(state.get("last_session_volume", 0.0) or 0.0)
         dur = int(state.get("last_session_duration", 0) or 0)
-        if vol <= 0 or dur <= 0:
+        # Exclude synthetic contribution from engine stats/analysis
+        synth = float(state.get("last_session_synthetic_volume", 0.0) or 0.0)
+        vol_eff = max(0.0, vol - max(0.0, synth))
+        if vol_eff <= 0 or dur <= 0:
             return
 
-        sig = (round(vol, 4), int(dur))
+        sig = (round(vol_eff, 4), int(dur))
         if sig == self._last_session_sig:
             return  # already recorded
 
         self._last_session_sig = sig
 
         avg = float(state.get("last_session_average_flow", 0.0) or 0.0)
+        # Adjust average flow to remove synthetic portion (volume/time)
+        try:
+            if dur > 0 and synth > 0:
+                avg -= (synth / (dur / 60.0))
+                if avg < 0:
+                    avg = 0.0
+        except Exception:
+            pass
         hot_pct = float(state.get("last_session_hot_water_pct", 0.0) or 0.0)
         gaps = int(state.get("last_session_gapped_sessions", 0) or 0)
 
@@ -143,7 +154,7 @@ class WaterMonitorEngine:
 
         rec = SessionRecord(
             ended_at=ended_at,
-            volume=round(vol, 6),
+            volume=round(vol_eff, 6),
             duration_s=int(dur),
             avg_flow=round(avg, 6),
             hot_pct=round(hot_pct, 2),

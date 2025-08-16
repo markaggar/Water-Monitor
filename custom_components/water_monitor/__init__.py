@@ -99,7 +99,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create and start engine
     domain_data = hass.data.setdefault(DOMAIN, {})
     engine = WaterMonitorEngine(hass, entry.entry_id, ex)
-    domain_data[entry.entry_id] = {"engine": engine}
+    domain_data[entry.entry_id] = {"engine": engine, "synthetic_flow_gpm": 0.0}
     await engine.start()
 
     # Register a one-time service to trigger daily analysis on demand

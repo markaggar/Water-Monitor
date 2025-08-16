@@ -40,6 +40,9 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
   - Stable unique IDs and device grouping per instance
 - Reliable finalization
   - Periodic evaluation during gaps and session end windows ensures sessions finalize even when source sensors are idle
+- Synthetic flow testing support
+  - Optional integration-owned number to inject synthetic GPM for testing
+  - UI sensors can include synthetic (configurable); engine analytics automatically exclude synthetic from daily summaries
 
 ## Installation
 
@@ -352,3 +355,15 @@ Issues and PRs are welcome. Please open an issue to discuss larger changes.
 ## License
 
 MIT License. See LICENSE.
+
+## Changelog
+
+### 0.3.0
+
+- New: Synthetic flow (gpm) test control as a Number entity
+  - Options to include synthetic flow in detectors and/or the engine’s live calculations
+  - Last/Current session sensors can include synthetic gallons when enabled, useful for simulation
+- Engine behavior: Synthetic gallons are excluded from stored sessions and daily analysis (analyze_yesterday)
+  - Daily totals and anomaly thresholds are computed without synthetic, so testing doesn’t skew analytics
+  - Sessions that are purely synthetic are not recorded by the engine
+- Stability: Improved session finalization logic and attributes for better visibility

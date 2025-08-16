@@ -19,6 +19,9 @@ from .const import (
     CONF_SENSOR_PREFIX,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
+    # synthetic flow handling
+    CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+    CONF_INCLUDE_SYNTHETIC_IN_ENGINE,
     # occupancy (entity + CSVs)
     CONF_OCC_MODE_ENTITY,
     CONF_OCC_STATE_AWAY,
@@ -154,6 +157,16 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(
         CONF_INTEL_DETECT_ENABLE,
         default=ex.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)),
+    )] = s_bool()
+
+    # Synthetic flow handling (opt-in to include synthetic)
+    fields[vol.Required(
+        CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+        default=ex.get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, DEFAULTS.get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, False)),
+    )] = s_bool()
+    fields[vol.Required(
+        CONF_INCLUDE_SYNTHETIC_IN_ENGINE,
+        default=ex.get(CONF_INCLUDE_SYNTHETIC_IN_ENGINE, DEFAULTS.get(CONF_INCLUDE_SYNTHETIC_IN_ENGINE, False)),
     )] = s_bool()
 
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
@@ -435,6 +448,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_LOW_FLOW_ENABLE,
                 CONF_TANK_LEAK_ENABLE,
                 CONF_INTEL_DETECT_ENABLE,
+                CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+                CONF_INCLUDE_SYNTHETIC_IN_ENGINE,
             ]
         }
         return self.async_show_form(step_id="init", data_schema=_main_schema(defaults))

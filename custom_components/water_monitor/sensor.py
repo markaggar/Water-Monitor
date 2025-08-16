@@ -331,11 +331,11 @@ class WaterSessionSensor(SensorEntity):
         session_active = bool(state_data.get("current_session_active", False))
         gap_active = bool(state_data.get("gap_active", False))
         flow_used = float(state_data.get("flow_used_by_engine", 0.0))
-        if session_active and flow_used > 0.0:
+        if flow_used > 0.0:
             # Predictable UI during active water usage
             self._ensure_timer(5, "active session timing")
-        elif (not session_active) and gap_active and flow_used == 0.0:
-            # Tight loop to promptly finalize gaps
+        elif gap_active and flow_used == 0.0:
+            # Tight loop to promptly finalize gaps even while session remains active
             self._ensure_timer(1, "gap monitoring at zero flow")
         else:
             # Idle: cancel periodic updates (event-driven only)
@@ -489,6 +489,8 @@ class WaterSessionSensor(SensorEntity):
             # Back-compat name used by detectors; reflects detectors_flow
             state_data["flow_sensor_value"] = float(detectors_flow)
             state_data["synthetic_volume_added"] = float(self._synthetic_volume_added)
+            # Debug: mirror gap conditions we use for cadence
+            state_data["_cad_gap_active_zero"] = bool(state_data.get("gap_active", False) and float(engine_flow) == 0.0)
 
             # Update this entity's state and attributes (last completed session volume)
             last_session_volume = float(state_data.get("last_session_volume", 0.0))

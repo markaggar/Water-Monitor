@@ -36,7 +36,7 @@ if (-not (Test-Path $DestPath)) {
 $robocopyArgs = @(
     $src,
     $DestPath,
-    '*.*','/E','/R:2','/W:2','/FFT','/IS',
+    '*.*','/E','/R:2','/W:2','/FFT',
     '/XF','*.pyc','*.pyo',
     '/XD','__pycache__'
 )
@@ -85,7 +85,7 @@ try {
         $pkgArgs = @(
             $srcDir,
             $PackagesDest,
-            $mask,'/R:2','/W:2','/FFT','/IS'
+            $mask,'/R:2','/W:2','/FFT'
         )
         & robocopy $pkgArgs | Out-Null
         $pcode = $LASTEXITCODE
@@ -141,6 +141,12 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
                 $lines = $content -split "`n"
                 $tail = ($lines | Select-Object -Last 80) -join "`n"
                 if ($tail) { Write-Host "--- HA error log (last 80 lines) ---`n$tail`n--- end ---" -ForegroundColor DarkYellow }
+                # Component-specific tail for faster diagnosis
+                $wmLines = $lines | Where-Object { $_ -match 'custom_components\.water_monitor| water_monitor ' }
+                if ($wmLines -and $wmLines.Count -gt 0) {
+                    $wmTail = ($wmLines | Select-Object -Last 60) -join "`n"
+                    if ($wmTail) { Write-Host "--- Water Monitor related log lines (last 60) ---`n$wmTail`n--- end ---" -ForegroundColor Yellow }
+                }
             } else {
                 Write-Host "HA error log returned empty content." -ForegroundColor DarkGray
             }
@@ -320,7 +326,8 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         if (-not $ok) {
             Write-Warning "Entity $VerifyEntity was not available within ${verifyMaxWait}s. Possible regression introduced."
             $script:wmFail = $true
-        if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'entity verification failed' }
+            # Always fetch error log on verification failure for quick triage
+            Fetch-HAErrorLog -why 'entity verification failed (sensor may not have loaded)'
         }
     }
 

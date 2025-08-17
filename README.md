@@ -4,7 +4,7 @@
 
 A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
 
-<img width="929" height="834" alt="image" src="https://github.com/user-attachments/assets/f1261ea1-1b8c-43e2-8c8b-35d76ee14dcb" />
+<img width="449" height="666" alt="image" src="https://github.com/user-attachments/assets/a8cdcfeb-f03d-4e9c-9527-e7230c58ddd8" />
 
 ## Features
 
@@ -58,7 +58,7 @@ HACS
 
 ## Configuration
 
-<img width="442" height="933" alt="image" src="https://github.com/user-attachments/assets/a5574ac6-36b1-4285-ae49-e489f5b6f15b" />
+<img width="364" height="920" alt="image" src="https://github.com/user-attachments/assets/0c773851-d4fa-4782-8683-b673e0701524" />
 
 Setup page (step 1)
 - Sensor Name Prefix
@@ -76,8 +76,6 @@ Setup page (step 1)
 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
 
-<img width="536" height="927" alt="image" src="https://github.com/user-attachments/assets/c7aba8d1-521a-4920-a94a-f433eee32128" />
-
 Low-flow leak (step 2)
 - Max low-flow threshold (e.g., 0.5 GPM)
 - Seed low-flow duration (seconds)
@@ -90,8 +88,6 @@ Low-flow leak (step 2)
 - Clear on sustained high flow (seconds; blank to disable)
 
 If “Create tank refill leak sensor” is checked, you’ll be presented with a third page:
-
-<img width="398" height="927" alt="image" src="https://github.com/user-attachments/assets/32682fa7-abdd-4539-9c59-3fba559725af" />
 
 Tank refill leak (step 2)
 - Minimum refill volume (ignore refills smaller than this)

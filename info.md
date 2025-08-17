@@ -13,24 +13,40 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
   - Last session volume: Most recently completed session with metadata (rounded to 2 decimals)
   - Current session volume: Real-time view during active use, shows the intermediate volume during gaps, and resets to 0 when a session ends (rounded to 2 decimals)
   - Last session duration: Duration in seconds of the last completed session
-  - Last session average flow: Average flow rate of the last completed session (<volume_unit>/min)
+  - Last session average flow: Average flow rate of the last completed session (volume unit per minute)
   - Last session hot water percentage: Hot water percentage of the last completed session
 - Hot water analytics
   - Tracks hot water time and percentage per session via an optional hot water binary sensor
 - Optional low-flow leak detector (binary sensor)
-  - Detects a continuous low-flow “dribble” and latches across nonzero usage
-  - Clears only after zero-flow for a configured time (optional safety clear on sustained high flow)
+  - Detects a continuous low-flow “dribble” with seed/persistence timers
+  - Modes: any non-zero flow (wall clock), in-range-only (<= max low-flow), baseline latch (preview)
+  - Clears after zero-flow idle and/or after sustained high flow; optional cooldown prevents immediate re-trigger
+  - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
 - Optional tank refill leak detector (binary sensor)
   - Detects repeated, similar-sized refills clustered in time (typical symptom of a leaky toilet flapper)
-  - Event-driven: subscribes to the integration’s last session (no polling)
+  - Optional min/max duration gates and contributing events list
+  - Event-driven: subscribes to the integration’s last session, no polling
+  - Fully optional: enable with a checkbox during setup or in Options; parameters are reconfigurable
+- Upstream sensors health (binary sensor)
+  - Monitors availability/validity of the configured upstream sensors (flow, volume, and optional hot-water)
+  - Attributes include per-entity last OK timestamps and unknown/unavailable lists
 - Reconfigurable via Options
-  - Adjust sensors and thresholds at any time in the Configure dialog
-  - Optional sensor name prefix for easy disambiguation
+  - Adjust sensors and thresholds at any time in the integration’s Configure dialog
+  - Optional sensor name prefix for easy disambiguation in the UI
 - Multi-instance safe
   - Add multiple instances with different sensors and thresholds
   - Stable unique IDs and device grouping per instance
 - Reliable finalization
   - Periodic evaluation during gaps and session end windows ensures sessions finalize even when source sensors are idle
+- Synthetic flow testing support
+  - Optional integration-owned number to inject synthetic GPM for testing
+  - UI sensors can include synthetic (configurable); engine analytics automatically exclude synthetic from daily summaries
+
+## Installation
+
+HACS
+- Add this repository in HACS as a Custom repository under Integrations (see repo URL).
+- Install “Water Monitor,” restart Home Assistant, and add the integration.
 
 ## Installation
 

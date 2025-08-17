@@ -178,24 +178,32 @@ Units
 2) Within-session gaps are tolerated up to Gap Tolerance
 3) After flow stops, the session remains open for the Gap Tolerance; if flow resumes within the tolerance, it’s one session
 4) The session finalizes once the gap tolerance elapses with no resumed flow
-5) The session is recorded if it meets minimum volume and duration thresholds
+5) Duration and averages exclude gap time (only periods with non-zero flow count toward duration and average flow)
+6) The session is recorded if it meets minimum volume and duration thresholds
 
 Gap handling example
-```
+
+```text
 Flow: ████████░░░████████░██████████░░░░░░░░░░░░
 Time: 0--5--10--15--20--25--30--35--40--45--50s
-      │              │              │
-      Session Start  │              Session End
-                     │              (gap tolerance elapsed)
-                     Brief 2s gap
-                     (within tolerance)
+  │              │              │
+  Session Start  │              Session End
+         │              (gap tolerance elapsed)
+         Brief 2s gap
+         (within tolerance)
+
+Duration counts only the solid blocks (non-zero flow):
+     [========]    [========]   [===========]
+     ^ active ^    ^ active ^   ^  active  ^
+  (gap time excluded from duration and averages)
 ```
 
 ### Last session volume
+
 - State: Volume of the most recent completed session
 - Attributes (highlights):
   - last_session_duration: Seconds
-  - last_session_average_flow: Average flow rate (derived)
+  - last_session_average_flow: Average flow rate (derived over active time; gap time excluded)
   - last_session_hot_water_pct: Percentage of time hot water was active
   - last_session_gapped_sessions: Number of gaps bridged during the session
   - flow_sensor_value: Instantaneous flow rate from your flow sensor
@@ -203,11 +211,12 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
   - Note: Attributes also include current and intermediate fields that reflect the tracker’s live state machine.
 
 ### Current session volume
+
 - State: Live session volume while water is in use; during a gap, shows the intermediate (snapshot) volume; after finalization, resets to 0
 - Attributes (triaged to match the most relevant stage: current → intermediate → final):
   - session_stage: current | intermediate | final
-  - session_duration: Seconds (from the selected stage)
-  - session_average_flow: Derived average flow (from the selected stage)
+  - session_duration: Seconds (from the selected stage; excludes gap time)
+  - session_average_flow: Derived average flow (from the selected stage; excludes gap time)
   - session_hot_water_pct: Hot water percentage (from the selected stage)
   - flow_sensor_value: Instantaneous flow rate
   - Plus raw values for transparency:
@@ -216,24 +225,29 @@ Time: 0--5--10--15--20--25--30--35--40--45--50s
     - last_session_volume, last_session_duration, last_session_average_flow, last_session_hot_water_pct
 
 Notes
+
 - The Current session volume sensor resets to 0 when a session ends, while keeping attributes that summarize the most relevant stage.
 - The Last session volume sensor’s state updates only after a session completes and passes thresholds.
 
 ### Last session duration
+
 - State: last_session_duration (seconds)
 - Attributes: debug_state
 
 ### Last session average flow
-- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals
+
+- State: last_session_average_flow (volume unit per minute), rounded to 2 decimals (computed over active time; gap time excluded)
 - Attributes: volume_unit (inferred from source volume sensor), debug_state
 
 ### Last session hot water percentage
+
 - State: last_session_hot_water_pct (%), rounded to 0.1
 - Attributes: debug_state
 
 ## Leak Detector Sensors
 
 ### Low-flow leak basics
+
 - Seeding: continuous low-flow must persist for the configured seed duration before counting begins (seed_s).
 - Once seeded, the sensor counts persistence toward trigger (min_s):
   - nonzero_wallclock: counts wall-clock time whenever flow > 0 (default)
@@ -242,6 +256,7 @@ Notes
 - Clearing: after true zero-flow idle for clear_idle_s and/or after sustained high flow for clear_on_high_s; optional cooldown delays re-triggering.
 
 ### Tank refill leak basics
+
 - What it detects: clustered, similar-sized refills (e.g., multiple toilet tank refills) that suggest a slow leak.
 - Event source: the integration’s “Last session volume” updates; the tank sensor listens for completed sessions and examines their volumes.
 - Similarity: two refills are considered “similar” if the absolute difference is within the configured similarity tolerance percentage of the latest refill.
@@ -250,6 +265,7 @@ Notes
 - Guards: refills below Minimum/shorter than Min duration or above Maximum/longer than Max duration (if set) are ignored to avoid false positives from noise or large draws unrelated to tank refills.
 
 Tuning tips
+
 - Minimum refill volume: set just below your typical toilet refill to ignore tiny noise.
 - Maximum refill volume: set just above a toilet refill to ignore showers/sprinklers; set 0 to disable the cap.
 - Similarity tolerance: start around 10%; increase if your meter reports variable volumes per flush.
@@ -258,6 +274,7 @@ Tuning tips
 ## Examples
 
 ### Automations (templates use your actual entity IDs)
+
 ```yaml
 # Example: Notify when a large session completes
 automation:
@@ -276,6 +293,7 @@ automation:
 ```
 
 ### Dashboards
+
 ```yaml
 type: entities
 title: Water Monitoring
@@ -311,35 +329,43 @@ entities:
 ## Troubleshooting
 
 ### Integration not appearing
+
 - Ensure files are in: config/custom_components/water_monitor/
 - Restart Home Assistant
 - Check logs for errors
 
 ### Sessions not being detected
+
 - Verify flow and volume sensors are providing numeric values
 - Confirm flow changes from 0 to a positive value
 - Adjust minimum volume/duration thresholds if needed
 
 ### Gaps not handled as expected
+
 - Tune Gap Tolerance to your plumbing and sensor update frequency
 
 ### No entities created
+
 - Ensure flow/volume sensors are set
 - If low-flow leak is enabled, make sure a flow sensor is selected
- - Derived sensors (duration, average flow, hot water %) are created automatically and stay in sync with the last-session sensor.
- - If you removed and re-added the integration, re-enable low-flow/tank leak options in the setup steps to recreate their binary sensors.
+  - Derived sensors (duration, average flow, hot water %) are created automatically and stay in sync with the last-session sensor.
+  - If you removed and re-added the integration, re-enable low-flow/tank leak options in the setup steps to recreate their binary sensors.
 
 ### Low-flow leak not triggering
+
 - Reduce the max low-flow threshold or the seed/persistence durations
 - Increase smoothing to stabilize noisy meters
 
 ### Low-flow leak not clearing
+
 - Verify the “Clear after zero-flow” duration; the sensor only clears after true zero flow
 
 ### Translations not updating
+
 - The frontend caches translations. If labels show as raw keys, clear your browser cache or restart Home Assistant.
 
 ## Debug logging
+
 ```yaml
 logger:
   logs:
@@ -366,3 +392,4 @@ MIT License. See LICENSE.
   - Daily totals and anomaly thresholds are computed without synthetic, so testing doesn’t skew analytics
   - Sessions that are purely synthetic are not recorded by the engine
 - Stability: Improved session finalization logic and attributes for better visibility
+- Session model: Removed the separate continuity window; a single Gap Tolerance governs within-session gaps and finalization. Session duration and averages now exclude gap time.

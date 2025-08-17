@@ -13,11 +13,30 @@
           "min_session_volume": "Minimum session volume",
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
-          "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow",
+        "description": "Optional test-only synthetic flow controls.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection",
+        "description": "Optional occupancy-aware settings and learning mode.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode"
         }
       },
       "tank_leak": {
@@ -82,11 +101,30 @@
           "min_session_volume": "Minimum session volume",
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
-          "session_continuity_window": "Continuity window (seconds)",
           "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
           "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow options",
+        "description": "Adjust synthetic flow behavior.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection options",
+        "description": "Adjust occupancy-aware settings and learning mode.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode"
         }
       },
       "tank_leak": {
@@ -132,6 +170,20 @@
         "data_description": {
           "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
+      }
+    }
+  }
+  ,
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Expected low-flow baseline"
+      },
+      "leak_sensitivity": {
+        "name": "Leak alert sensitivity"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Synthetic flow (gpm)"
       }
     }
   }

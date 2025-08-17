@@ -1,0 +1,867 @@
+# Alternative package using Integration sensor for volume (no tick automation needed)
+# Place under config/packages/ and include_dir_named from configuration.yaml
+
+input_number:
+  water_test_flow_gpm:
+    name: Water Test Flow (gpm)
+    min: 0
+    max: 50
+    step: 0.1
+
+  # Per-consumer contribution gpm (aggregated into total flow sensor)
+  sim_faucet_gpm:
+    name: Sim Faucet Flow (gpm)
+    min: 0
+    max: 3
+    step: 0.1
+  sim_toilet_gpm:
+    name: Sim Toilet Flow (gpm)
+    min: 0
+    max: 5
+    step: 0.1
+  sim_shower_gpm:
+    name: Sim Shower Flow (gpm)
+    min: 0
+    max: 4
+    step: 0.1
+  sim_dw_gpm:
+    name: Sim Dishwasher Flow (gpm)
+    min: 0
+    max: 3
+    step: 0.1
+  sim_wm_gpm:
+    name: Sim Washing Machine Flow (gpm)
+    min: 0
+    max: 5
+    step: 0.1
+  sim_irrig_gpm:
+    name: Sim Irrigation Flow (gpm)
+    min: 0
+    max: 10
+    step: 0.1
+
+  # Leak contributions (independent)
+  sim_leak_low_gpm:
+    name: Sim Low Leak Flow (gpm)
+    min: 0
+    max: 2
+    step: 0.05
+  sim_leak_high_gpm:
+    name: Sim High Leak Flow (gpm)
+    min: 0
+    max: 20
+    step: 0.1
+
+  sim_tank_leak_base:
+    name: Sim Tank Leak Base (gpm)
+    min: 0
+    max: 2
+    step: 0.01
+    initial: 0.2
+
+  sim_tank_leak_last_jitter:
+    name: Sim Tank Leak Last Jitter (gpm)
+    min: -1
+    max: 1
+    step: 0.001
+    initial: 0
+
+input_boolean:
+  sim_random_usage_enabled:
+    name: Sim Random Usage Enabled
+  sim_tank_leak_active:
+    name: Sim Tank Leak Active
+  # Per-consumer active flags
+  sim_faucet_active:
+    name: Sim Faucet Active
+  sim_toilet_active:
+    name: Sim Toilet Active
+  sim_shower_active:
+    name: Sim Shower Active
+  sim_dw_active:
+    name: Sim Dishwasher Active
+  sim_wm_active:
+    name: Sim Washing Machine Active
+  sim_irrig_active:
+    name: Sim Irrigation Active
+  # Leak flags
+  sim_leak_low_active:
+    name: Sim Low Leak Active
+  sim_leak_high_active:
+    name: Sim High Leak Active
+  # Busy/Calm gating
+  sim_busy_gate:
+    name: Sim Busy Gate (on=busy)
+  sim_auto_busy_calm:
+    name: Sim Auto Busy/Calm
+
+input_select:
+  sim_usage_mode:
+    name: Sim Usage Mode
+    options:
+      - Quiet
+      - Normal
+      - Busy
+    initial: Normal
+
+input_datetime:
+  # Next-allowed start timestamps for cooldown/lockouts
+  sim_faucet_next_allowed:
+    name: Sim Faucet Next Allowed
+    has_date: true
+    has_time: true
+  sim_toilet_next_allowed:
+    name: Sim Toilet Next Allowed
+    has_date: true
+    has_time: true
+  sim_shower_next_allowed:
+    name: Sim Shower Next Allowed
+    has_date: true
+    has_time: true
+  sim_dw_next_allowed:
+    name: Sim Dishwasher Next Allowed
+    has_date: true
+    has_time: true
+  sim_wm_next_allowed:
+    name: Sim Washing Machine Next Allowed
+    has_date: true
+    has_time: true
+  sim_irrig_next_allowed:
+    name: Sim Irrigation Next Allowed
+    has_date: true
+    has_time: true
+
+template:
+  - trigger:
+      - platform: time_pattern
+        seconds: "/30"
+      - platform: state
+        entity_id:
+          - input_number.sim_faucet_gpm
+          - input_number.sim_toilet_gpm
+          - input_number.sim_shower_gpm
+          - input_number.sim_dw_gpm
+          - input_number.sim_wm_gpm
+          - input_number.sim_irrig_gpm
+          - input_number.sim_leak_low_gpm
+          - input_number.sim_leak_high_gpm
+          - input_number.sim_tank_leak_base
+          - input_number.sim_tank_leak_last_jitter
+          - input_boolean.sim_tank_leak_active
+    sensor:
+      - name: Water Test Flow Sampled
+        unique_id: water_test_flow_sampled
+        state: >-
+          {% set leak_tank = (states('input_number.sim_tank_leak_base')|float(0)) + (states('input_number.sim_tank_leak_last_jitter')|float(0)) if is_state('input_boolean.sim_tank_leak_active','on') else 0 %}
+          {% set total = [
+            states('input_number.water_test_flow_gpm')|float(0),
+            states('input_number.sim_faucet_gpm')|float(0),
+            states('input_number.sim_toilet_gpm')|float(0),
+            states('input_number.sim_shower_gpm')|float(0),
+            states('input_number.sim_dw_gpm')|float(0),
+            states('input_number.sim_wm_gpm')|float(0),
+            states('input_number.sim_irrig_gpm')|float(0),
+            (states('input_number.sim_leak_low_gpm')|float(0) if is_state('input_boolean.sim_leak_low_active','on') else 0),
+            (states('input_number.sim_leak_high_gpm')|float(0) if is_state('input_boolean.sim_leak_high_active','on') else 0),
+            leak_tank
+          ] | sum %}
+          {{ total | round(3) }}
+        unit_of_measurement: "gal/min"
+        state_class: measurement
+        attributes:
+          last_sample: "{{ now().isoformat() }}"
+          faucet_gpm: "{{ states('input_number.sim_faucet_gpm') }}"
+          toilet_gpm: "{{ states('input_number.sim_toilet_gpm') }}"
+          shower_gpm: "{{ states('input_number.sim_shower_gpm') }}"
+          dishwasher_gpm: "{{ states('input_number.sim_dw_gpm') }}"
+          washer_gpm: "{{ states('input_number.sim_wm_gpm') }}"
+          irrigation_gpm: "{{ states('input_number.sim_irrig_gpm') }}"
+          manual_gpm: "{{ states('input_number.water_test_flow_gpm') }}"
+          leak_low_gpm: "{{ states('input_number.sim_leak_low_gpm') if is_state('input_boolean.sim_leak_low_active','on') else 0 }}"
+          leak_high_gpm: "{{ states('input_number.sim_leak_high_gpm') if is_state('input_boolean.sim_leak_high_active','on') else 0 }}"
+          leak_tank_gpm: >-
+            {{ ((states('input_number.sim_tank_leak_base')|float(0)) + (states('input_number.sim_tank_leak_last_jitter')|float(0))) if is_state('input_boolean.sim_tank_leak_active','on') else 0 }}
+          whats_on: >-
+            {{
+              [
+                'manual' if states('input_number.water_test_flow_gpm')|float(0) > 0 else None,
+                'faucet' if states('input_number.sim_faucet_gpm')|float(0) > 0 else None,
+                'toilet' if states('input_number.sim_toilet_gpm')|float(0) > 0 else None,
+                'shower' if states('input_number.sim_shower_gpm')|float(0) > 0 else None,
+                'dishwasher' if states('input_number.sim_dw_gpm')|float(0) > 0 else None,
+                'washer' if states('input_number.sim_wm_gpm')|float(0) > 0 else None,
+                'irrigation' if states('input_number.sim_irrig_gpm')|float(0) > 0 else None,
+                'leak_low' if (is_state('input_boolean.sim_leak_low_active','on') and states('input_number.sim_leak_low_gpm')|float(0) > 0) else None,
+                'leak_high' if (is_state('input_boolean.sim_leak_high_active','on') and states('input_number.sim_leak_high_gpm')|float(0) > 0) else None,
+                'leak_tank' if is_state('input_boolean.sim_tank_leak_active','on') else None
+              ] | select('string') | list | join(', ')
+            }}
+
+sensor:
+  - platform: integration
+    source: sensor.water_test_flow_sampled
+    name: Water Test Volume (integrated)
+    unit_time: min
+    method: left
+    max_sub_interval: 1
+    round: 3
+
+script:
+  # Per-consumer event scripts (set contribution on, then off)
+  sim_consumer_faucet_once:
+    alias: Sim Faucet Once (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          delta: "{{ (range(5,11)|random) / 10.0 }}"  # 0.5–1.0 gpm
+          dur_s: "{{ range(5, 21) | random }}"  # 5–20s, shorter faucet bursts
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_faucet_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_faucet_gpm
+        data:
+          value: "{{ delta }}"
+      - delay: "{{ dur_s }}s"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_faucet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_faucet_active
+
+  sim_consumer_toilet_once:
+    alias: Sim Toilet Flush (consistent profile)
+    mode: parallel
+    sequence:
+      - variables:
+          flow: "{{ (range(25, 41)|random) / 10.0 }}"  # 2.5–4.0 gpm
+          dur_s: "{{ range(15, 41) | random }}"  # primary burst stays short
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_toilet_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_toilet_gpm
+        data:
+          value: "{{ flow }}"
+      - delay: "{{ dur_s }}s"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (range(1,101)|random) <= 30 }}"  # ~30% reflush
+            sequence:
+              - variables:
+                  re_dur: "{{ range(10, 26) | random }}"
+                  re_delay: "{{ range(30, 91) | random }}"
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.sim_toilet_gpm
+                data:
+                  value: 0
+              - delay: "{{ re_delay }}s"
+              - service: input_number.set_value
+                target:
+                  entity_id: input_number.sim_toilet_gpm
+                data:
+                  value: "{{ flow }}"
+              - delay: "{{ re_dur }}s"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_toilet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_toilet_active
+
+  sim_consumer_shower:
+    alias: Sim Shower (random duration)
+    mode: parallel
+    sequence:
+      - variables:
+          flow: 2.2
+          dur_s: "{{ range(240, 661) | random }}"  # 4–11 min (guard clears >13m)
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_shower_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_shower_gpm
+        data:
+          value: "{{ flow }}"
+      - delay: "{{ dur_s }}s"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_shower_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_shower_active
+
+  sim_consumer_dw_cycle:
+    alias: Sim Dishwasher Cycle (repeatable bursts)
+    mode: parallel
+    sequence:
+      - variables:
+          flow: 1.2
+          bursts: "{{ 3 if (range(1,101)|random) <= 30 else 2 }}"  # 2–3 bursts
+          b1: 90
+          b2: 75
+          b3: 90
+          g1: "{{ range(480, 721) | random }}"  # 8–12 min gap
+          g2: "{{ range(480, 721) | random }}"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_dw_active
+      - repeat:
+          count: "{{ bursts | int(2) }}"
+          sequence:
+            - variables:
+                dur: "{{ b1 if repeat.index == 1 else (b2 if repeat.index == 2 else b3) }}"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.sim_dw_gpm
+              data:
+                value: "{{ flow }}"
+            - delay: "{{ dur }}s"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.sim_dw_gpm
+              data:
+                value: 0
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ not repeat.last }}"
+                  sequence:
+                    - delay: "{{ g1 if repeat.index == 1 else g2 }}s"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_dw_active
+
+  sim_consumer_wm_cycle:
+    alias: Sim Washing Machine Cycle (repeatable bursts)
+    mode: parallel
+    sequence:
+      - variables:
+          flow: 2.5
+          bursts: "{{ 4 if (range(1,101)|random) <= 40 else 3 }}"  # 3–4 bursts
+          b1: 90
+          b2: 90
+          b3: 120
+          b4: 90
+          g1: "{{ range(180, 361) | random }}"  # 3–6 min
+          g2: "{{ range(240, 481) | random }}"  # 4–8 min
+          g3: "{{ range(180, 361) | random }}"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_wm_active
+      - repeat:
+          count: "{{ bursts | int(3) }}"
+          sequence:
+            - variables:
+                dur: >-
+                  {{ b1 if repeat.index == 1 else (b2 if repeat.index == 2 else (b3 if repeat.index == 3 else b4)) }}
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.sim_wm_gpm
+              data:
+                value: "{{ flow }}"
+            - delay: "{{ dur }}s"
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.sim_wm_gpm
+              data:
+                value: 0
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ not repeat.last }}"
+                  sequence:
+                    - variables:
+                        gap: >-
+                          {{ g1 if repeat.index == 1 else (g2 if repeat.index == 2 else g3) }}
+                    - delay: "{{ gap }}s"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_wm_active
+
+  sim_consumer_irrigation:
+    alias: Sim Irrigation (random duration)
+    mode: restart
+    sequence:
+      - variables:
+          flow: "{{ (range(30, 61)|random) / 10.0 }}"  # 3–6 gpm
+          dur_s: "{{ range(1200, 2401) | random }}"  # 20–40 min
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_irrig_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_irrig_gpm
+        data:
+          value: "{{ flow }}"
+      - delay: "{{ dur_s }}s"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_irrig_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_irrig_active
+
+  # Legacy scripts above replaced by per-consumer scripts
+
+  sim_flow_stop:
+    alias: Stop Simulated Flow
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.water_test_flow_gpm
+
+  sim_leak_low_start:
+    alias: Start Low Leak (default 0.2 gpm for N min)
+    mode: restart
+    fields:
+      gpm:
+        description: Leak gpm
+        example: 0.2
+      minutes:
+        description: Duration in minutes
+        example: 20
+    sequence:
+      - variables:
+          g: "{{ (gpm|default(0.2))|float(0.2) }}"
+          mins: "{{ (minutes|default(20))|int(20) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_leak_low_gpm
+        data:
+          value: "{{ g }}"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_leak_low_active
+      - delay: "00:{{ '%02d'|format(mins) }}:00"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_leak_low_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_leak_low_gpm
+        data:
+          value: 0
+
+  sim_normal_shower:
+    alias: Simulate Normal Shower (2.2 gpm for 8 min)
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 2.2
+        target:
+          entity_id: input_number.water_test_flow_gpm
+      - delay: "00:08:00"
+      - service: script.sim_flow_stop
+
+  sim_tank_leak_start:
+    alias: Start Simulated Tank Leak
+    mode: restart
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_tank_leak_active
+
+  sim_tank_leak_stop:
+    alias: Stop Simulated Tank Leak
+    mode: restart
+    sequence:
+      - service: input_number.set_value
+        data:
+          value: 0
+        target:
+          entity_id: input_number.sim_tank_leak_last_jitter
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_tank_leak_active
+
+  sim_leak_high_start:
+    alias: Start High Flow Leak (continuous)
+    mode: restart
+    fields:
+      gpm:
+        description: High leak gpm
+        example: 6
+    sequence:
+      - variables:
+          g: "{{ (gpm|default(6))|float(6) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_leak_high_gpm
+        data:
+          value: "{{ g }}"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.sim_leak_high_active
+
+  sim_leak_high_stop:
+    alias: Stop High Flow Leak
+    mode: restart
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_leak_high_active
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_leak_high_gpm
+        data:
+          value: 0
+
+  sim_seed_baselines:
+    alias: Seed Water Monitor Baselines (14 days)
+    sequence:
+      - service: water_monitor.simulate_history
+        data:
+          days: 14
+          include_irrigation: true
+
+automation:
+  - id: sim_reset_flow_on_start
+    alias: Reset Sim Flow to 0 on HA Start
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    action:
+      # Zero all contributions and flags
+      - service: input_number.set_value
+        target:
+          entity_id:
+            - input_number.water_test_flow_gpm
+            - input_number.sim_faucet_gpm
+            - input_number.sim_toilet_gpm
+            - input_number.sim_shower_gpm
+            - input_number.sim_dw_gpm
+            - input_number.sim_wm_gpm
+            - input_number.sim_irrig_gpm
+            - input_number.sim_leak_low_gpm
+            - input_number.sim_leak_high_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.sim_faucet_active
+            - input_boolean.sim_toilet_active
+            - input_boolean.sim_shower_active
+            - input_boolean.sim_dw_active
+            - input_boolean.sim_wm_active
+            - input_boolean.sim_irrig_active
+            - input_boolean.sim_leak_low_active
+            - input_boolean.sim_leak_high_active
+            - input_boolean.sim_tank_leak_active
+            - input_boolean.sim_busy_gate
+
+  - id: sim_guard_faucet_max_duration
+    alias: "Sim Guard: Faucet max duration (auto-clear if >60s)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_faucet_gpm
+        above: 0
+        for: "00:01:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_faucet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_faucet_active
+
+  - id: sim_guard_toilet_max_duration
+    alias: "Sim Guard: Toilet max duration (auto-clear if >2m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_toilet_gpm
+        above: 0
+        for: "00:02:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_toilet_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_toilet_active
+
+  - id: sim_guard_shower_max_duration
+    alias: "Sim Guard: Shower max duration (auto-clear if >13m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_shower_gpm
+        above: 0
+        for: "00:13:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_shower_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_shower_active
+
+  - id: sim_guard_dw_max_duration
+    alias: "Sim Guard: Dishwasher burst max duration (auto-clear if >5m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_dw_gpm
+        above: 0
+        for: "00:05:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_dw_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_dw_active
+
+  - id: sim_guard_wm_max_duration
+    alias: "Sim Guard: Washer burst max duration (auto-clear if >4m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_wm_gpm
+        above: 0
+        for: "00:04:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_wm_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_wm_active
+
+  - id: sim_guard_irrig_max_duration
+    alias: "Sim Guard: Irrigation max duration (auto-clear if >45m)"
+    mode: restart
+    trigger:
+      - platform: numeric_state
+        entity_id: input_number.sim_irrig_gpm
+        above: 0
+        for: "00:45:00"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.sim_irrig_gpm
+        data:
+          value: 0
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.sim_irrig_active
+
+  - id: water_monitor_sim_log_on_update_integ
+    alias: Log Intelligent Leak Attributes (Integration volume)
+    mode: queued
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.water_monitor_intelligent_leak
+    action:
+      - variables:
+          attrs: "{{ state_attr('binary_sensor.water_monitor_intelligent_leak', 'friendly_name') }} | ready={{ state_attr('binary_sensor.water_monitor_intelligent_leak','baseline_ready') }} p={{ state_attr('binary_sensor.water_monitor_intelligent_leak','chosen_percentile') }} thr_s={{ state_attr('binary_sensor.water_monitor_intelligent_leak','effective_threshold_s') }} risk={{ state_attr('binary_sensor.water_monitor_intelligent_leak','risk') }} reasons={{ state_attr('binary_sensor.water_monitor_intelligent_leak','reasons') }}"
+      - service: system_log.write
+        data:
+          level: info
+          message: "Intelligent Leak Update: {{ attrs }}"
+
+  - id: sim_stochastic_usage_scheduler
+    alias: Simulate Stochastic Household Usage (overlapping)
+    mode: parallel
+    trigger:
+      - platform: time_pattern
+        seconds: "/5"
+    condition:
+      - condition: state
+        entity_id: input_boolean.sim_random_usage_enabled
+        state: "on"
+    action:
+      - variables:
+          mode: "{{ states('input_select.sim_usage_mode') }}"
+          busy: "{{ is_state('input_boolean.sim_busy_gate','on') }}"
+          # multipliers: Quiet=0.5, Normal=1.0, Busy=2.0 (or 3.0 if busy gate is ON)
+          base_mult: >-
+            {{ 0.5 if mode == 'Quiet' else (1.0 if mode == 'Normal' else 2.0) }}
+          mult: >-
+            {{ (base_mult * 1.5) if busy else base_mult }}
+          nowts: "{{ now().timestamp() }}"
+          def_ts: "1970-01-01 00:00:00"
+      # Faucet: ~3–8%/tick * mult; cooldown 10–60s
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_faucet_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_faucet_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,101)|random) <= (4 * mult)|int
+                  }}
+            sequence:
+              - service: script.sim_consumer_faucet_once
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_faucet_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(seconds=range(10,61)|random)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Toilet: ~1%/tick * mult; cooldown 3–10 min
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_toilet_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_toilet_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,101)|random) <= (1 * mult)|int
+                  }}
+            sequence:
+              - service: script.sim_consumer_toilet_once
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_toilet_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(seconds=range(180,601)|random)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Shower: ~0.2%/tick * mult; cooldown 30–90 min
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_shower_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_shower_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,1001)|random) <= (2 * mult)|int
+                  }}
+            sequence:
+              - service: script.sim_consumer_shower
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_shower_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(minutes=range(30,91)|random)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Dishwasher: ~0.08%/tick * mult; lockout 60–180 min
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_dw_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_dw_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,2001)|random) <= (2 * mult)|int
+                  }}
+            sequence:
+              - service: script.sim_consumer_dw_cycle
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_dw_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(minutes=range(60,181)|random)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Washing machine: ~0.08%/tick * mult; lockout 60–180 min
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_wm_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_wm_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,2001)|random) <= (2 * mult)|int
+                  }}
+            sequence:
+              - service: script.sim_consumer_wm_cycle
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_wm_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(minutes=range(60,181)|random)).strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Irrigation: very rare unless started manually; lockout 24h
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{
+                    is_state('input_boolean.sim_irrig_active','off')
+                    and (now().timestamp() >= (states('input_datetime.sim_irrig_next_allowed')|as_timestamp|float(0)))
+                    and (range(1,2001)|random) == 1
+                  }}
+            sequence:
+              - service: script.sim_consumer_irrigation
+              - service: input_datetime.set_datetime
+                target:
+                  entity_id: input_datetime.sim_irrig_next_allowed
+                data:
+                  datetime: "{{ (now() + timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  - id: sim_auto_busy_calm_toggle
+    alias: Sim Auto Busy/Calm Toggle
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_boolean.sim_auto_busy_calm
+        to: "on"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_boolean.sim_auto_busy_calm
+        state: "on"
+    action:
+      - repeat:
+          while:
+            - condition: state
+              entity_id: input_boolean.sim_auto_busy_calm
+              state: "on"
+          sequence:
+            - service: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.sim_busy_gate
+            - delay: "{{ range(300, 1201)|random }}s"  # Busy 5–20 min
+            - service: input_boolean.turn_off
+              target:
+                entity_id: input_boolean.sim_busy_gate
+            - delay: "{{ range(120, 601)|random }}s"  # Calm 2–10 min
+
+  - id: sim_tank_leak_jitter
+    alias: Simulated Tank Leak Jitter
+    mode: queued
+    trigger:
+      - platform: time_pattern
+        seconds: "/15"
+    condition:
+      - condition: state
+        entity_id: input_boolean.sim_tank_leak_active
+        state: "on"
+    action:
+      - variables:
+          # jitter range +/- 0.05 gpm
+          new: "{{ ((range(-50, 51)|random)|float) / 1000.0 * 1.0 }}"  # -0.05..0.05 in steps of 0.001
+          old: "{{ states('input_number.sim_tank_leak_last_jitter')|float(0) }}"
+          adj: "{{ (new|float) - (old|float) }}"
+      - service: input_number.set_value
+        data:
+          value: "{{ new }}"
+        target:
+          entity_id: input_number.sim_tank_leak_last_jitter

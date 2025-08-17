@@ -24,6 +24,7 @@ from homeassistant.helpers.event import (
     async_call_later,
     async_track_time_interval,
 )
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
     DOMAIN,
@@ -58,6 +59,8 @@ from .const import (
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
+from .const import engine_signal, tracker_signal
+from .engine import WaterMonitorEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -126,7 +129,306 @@ async def async_setup_entry(
             )
         )
 
+    # Engine status binary sensor (reflects data collection and anomaly)
+    entities.append(
+        EngineStatusBinarySensor(
+            entry=entry,
+            name=f"{prefix} Daily analysis status",
+        )
+    )
+
+    # Intelligent leak detector (simple baseline version)
+    entities.append(
+        IntelligentLeakBinarySensor(
+            entry=entry,
+            name=f"{prefix} Intelligent leak",
+        )
+    )
+
     async_add_entities(entities)
+
+
+class EngineStatusBinarySensor(BinarySensorEntity):
+    """Shows whether the engine has flagged an anomaly for the latest daily summary.
+
+    Attributes also include last session/summary timestamps and counts for visibility.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, entry: ConfigEntry, name: str) -> None:
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_engine_status"
+        self._attr_is_on = False
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+        self._unsub = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to engine dispatches
+        sig = engine_signal(self._entry.entry_id)
+        self._unsub = async_dispatcher_connect(self.hass, sig, self._on_engine_event)
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _on_engine_event(self, payload: dict) -> None:
+        """Process engine events to reflect status and anomaly flag."""
+        try:
+            typ = payload.get("type")
+            if typ == "ingest":
+                rec = payload.get("record", {})
+                self._attr_extra_state_attributes.update({
+                    "last_session_ended_at": rec.get("ended_at"),
+                    "last_session_volume": rec.get("volume"),
+                    "last_session_duration_s": rec.get("duration_s"),
+                })
+                # Data collection active
+                self._attr_available = True
+            elif typ == "daily":
+                summary = payload.get("summary", {})
+                anomaly = bool(summary.get("anomaly", False))
+                self._attr_is_on = anomaly
+                self._attr_extra_state_attributes.update({
+                    "last_daily_date": summary.get("date"),
+                    "last_daily_total_volume": summary.get("total_volume"),
+                    "last_daily_sessions": summary.get("sessions"),
+                    "baseline_mean": summary.get("baseline_mean"),
+                    "baseline_std": summary.get("baseline_std"),
+                    "threshold_3sigma": summary.get("threshold_3sigma"),
+                })
+            # Write updated state
+            self.async_write_ha_state()
+        except Exception:
+            # Defensive: don’t throw from callback
+            pass
+
+
+class IntelligentLeakBinarySensor(BinarySensorEntity):
+    """Real-time leak detection based on current-session and simple hourly baselines."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, entry: ConfigEntry, name: str) -> None:
+        self._entry = entry
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_intelligent_leak"
+        self._attr_is_on = False
+        self._attr_available = True
+        self._attr_extra_state_attributes = {}
+        self._unsub = None
+        # Last evaluation timestamp; set during tracker callbacks
+        self._last_eval_ts = None
+        self._sensitivity_entity_id = None
+        # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
+        self._flow_active_start = None
+        self._last_flow_now = 0.0
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        ex = {**self._entry.data, **self._entry.options}
+        prefix = ex.get(CONF_SENSOR_PREFIX) or self._entry.title or "Water Monitor"
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=prefix,
+            manufacturer="markaggar",
+            model="Water Session Tracking and Leak Detection",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        # Subscribe to live tracker updates
+        sig = tracker_signal(self._entry.entry_id)
+        self._unsub = async_dispatcher_connect(self.hass, sig, self._on_tracker_update)
+        self._attr_available = True
+        # Resolve the Leak alert sensitivity number entity_id by unique_id
+        try:
+            reg = er.async_get(self.hass)
+            target_uid = f"{self._entry.entry_id}_leak_sensitivity"
+            for ent in er.async_entries_for_config_entry(reg, self._entry.entry_id):
+                if ent.unique_id == target_uid and ent.domain == "number":
+                    self._sensitivity_entity_id = ent.entity_id
+                    break
+        except Exception:
+            self._sensitivity_entity_id = None
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub:
+            self._unsub()
+            self._unsub = None
+        await super().async_will_remove_from_hass()
+
+    def _get_engine(self) -> Optional[WaterMonitorEngine]:
+        try:
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            return data.get("engine") if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
+        local = now.astimezone()
+        return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
+
+    def _get_sensitivity(self) -> float:
+        """Read user sensitivity (0-100), default 50 when unavailable."""
+        try:
+            if self._sensitivity_entity_id:
+                st = self.hass.states.get(self._sensitivity_entity_id)
+                if st and st.state not in (None, "unknown", "unavailable"):
+                    val = float(st.state)
+                    return max(0.0, min(100.0, val))
+        except Exception:
+            pass
+        return 50.0
+
+    def _percentile_from_sensitivity(self, s: float) -> float:
+        """Map 0..100 to 99..90 (linear), with 50 -> ~95."""
+        s = max(0.0, min(100.0, s))
+        return 99.0 - 0.09 * s
+
+    def _interpolate_threshold(self, p90: float, p95: float, p99: float, target_p: float) -> float:
+        target_p = max(90.0, min(99.0, target_p))
+        if target_p <= 95.0:
+            # Map 90..95 onto p90..p95
+            t = (target_p - 90.0) / 5.0
+            return p90 + t * max(0.0, p95 - p90)
+        else:
+            # Map 95..99 onto p95..p99
+            t = (target_p - 95.0) / 4.0
+            return p95 + t * max(0.0, p99 - p95)
+
+    @callback
+    def _on_tracker_update(self, state: dict) -> None:
+        try:
+            now = datetime.now(timezone.utc)
+            self._last_eval_ts = now
+            # Pull live session metrics
+            active = bool(state.get("current_session_active", False))
+            elapsed = int(state.get("current_session_duration", 0) or 0)
+            avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
+            hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
+            flow_now = float(state.get("flow_sensor_value", 0.0) or 0.0)
+            # Maintain independent wall-clock elapsed while flow > 0
+            if flow_now > 0.0:
+                if self._flow_active_start is None:
+                    self._flow_active_start = now
+            else:
+                self._flow_active_start = None
+            flow_elapsed = int((now - self._flow_active_start).total_seconds()) if self._flow_active_start else 0
+
+            # Choose elapsed for risk: prefer session elapsed, else fall back to wall-clock under flow
+            eff_elapsed = elapsed if (active and elapsed > 0) else flow_elapsed
+
+            # Fetch context-aware baseline for current hour/day_type and occupancy/person context
+            eng = self._get_engine()
+            hour, day_type = self._hour_and_daytype(now)
+            stats = None
+            if eng:
+                # Ask engine for context-aware stats reflecting now
+                stats = eng.get_context_stats_for_now()
+            stats = stats or {
+                "bucket": None,
+                "count": 0,
+                "p50": 0.0,
+                "p90": 0.0,
+                "p95": 0.0,
+                "p99": 0.0,
+                "level": 99,
+            }
+            # Compute chosen percentile from sensitivity
+            sensitivity = self._get_sensitivity()
+            chosen_p = self._percentile_from_sensitivity(sensitivity)
+            p90 = float(stats.get("p90", 0.0) or 0.0)
+            p95 = float(stats.get("p95", 0.0) or 0.0)
+            p99 = float(stats.get("p99", 0.0) or 0.0)
+            count = int(stats.get("count", 0) or 0)
+            bucket = stats.get("bucket")
+            occ_class = stats.get("occ_class") or "home"
+
+            # Build effective threshold
+            baseline_ready = count >= 10
+            if baseline_ready and (p90 > 0.0 or p95 > 0.0 or p99 > 0.0):
+                base_threshold = self._interpolate_threshold(p90, p95, p99, chosen_p)
+            else:
+                base_threshold = 0.0
+
+            # Sparse-data fallback floor (minutes -> seconds)
+            fallback_min_minutes = 45.0 - (25.0 * (sensitivity / 100.0))  # 45 at 0, ~32.5 at 50, 20 at 100
+            fallback_floor_s = max(5.0 * 60.0, fallback_min_minutes * 60.0)
+
+            # Apply policy floors/adjustments
+            effective_threshold = base_threshold if base_threshold > 0 else fallback_floor_s
+            if occ_class == "vacation":
+                effective_threshold = max(effective_threshold, 45.0 * 60.0)
+            elif occ_class == "away":
+                effective_threshold = max(effective_threshold, 35.0 * 60.0)
+            elif occ_class == "night":
+                # tighten a bit at night but don’t go below 10 min to avoid over-aggression
+                effective_threshold = max(effective_threshold * 0.85, 10.0 * 60.0)
+
+            # Risk: scale by ratio to effective threshold
+            reasons = []
+            if eff_elapsed > 0 and effective_threshold > 0:
+                risk = eff_elapsed / effective_threshold
+                if baseline_ready:
+                    reasons.append("elapsed>p{:.1f}".format(chosen_p))
+                else:
+                    reasons.append("fallback_floor")
+            else:
+                risk = 0.0
+
+            # Slightly increase risk if flow is very low but persistent (drip leaks)
+            if 0.0 < flow_now <= 0.3 and elapsed >= 10 * 60:
+                risk += 0.3
+                reasons.append("low_flow_persistent")
+
+            is_on = risk >= 1.0
+            prev = self._attr_is_on
+            self._attr_is_on = is_on
+            self._attr_extra_state_attributes = {
+                "baseline_ready": baseline_ready,
+                "bucket_used": bucket,
+                "count": count,
+                "p90": p90,
+                "p95": p95,
+                "p99": p99,
+                "sensitivity_setting": sensitivity,
+                "chosen_percentile": round(chosen_p, 1),
+                "effective_threshold_s": round(effective_threshold, 1),
+                "fallback_elapsed_floor_s": round(fallback_floor_s, 1),
+                "policy_context": occ_class,
+                "elapsed_s": eff_elapsed,
+                "avg_flow": round(avg_flow, 2),
+                "hot_pct": round(hot_pct, 1),
+                "flow_now": flow_now,
+                "risk": round(risk, 2),
+                "reasons": reasons,
+            }
+            if prev != self._attr_is_on:
+                self.async_write_ha_state()
+            else:
+                self.async_write_ha_state()
+        except Exception:
+            # Silent fail to avoid crashing dispatcher
+            pass
 
 
 class UpstreamHealthBinarySensor(BinarySensorEntity):
@@ -154,7 +456,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self._hot_water_entity_id = hot_water_entity_id or None
 
         self._unsub_state = None
-        self._last_ok: dict[str, Optional[datetime]] = {}
+        self._last_ok = {}
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -317,6 +619,9 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
 
         self._unsub_state = None
         self._unsub_timer = None
+        # Track detectors_flow provided by the tracker (includes synthetic when enabled)
+        self._tracker_unsub = None
+        self._last_detectors_flow = None
 
         # Runtime counters
         self._seeded = False
@@ -324,8 +629,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._count_progress = 0.0
         self._idle_zero_s = 0.0
         self._high_flow_s = 0.0
-        self._last_update: Optional[datetime] = None
-        self._cooldown_until: Optional[datetime] = None
+        self._last_update = None
+        self._cooldown_until = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -344,19 +649,29 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._last_update = datetime.now(timezone.utc)
         self.async_write_ha_state()
 
+        # Subscribe both to raw flow entity (for availability) and tracker for detectors flow
         if self._flow_entity_id:
             self._unsub_state = async_track_state_change_event(
                 self.hass, [self._flow_entity_id], self._async_flow_changed
             )
-        # Periodic to advance clocks
-        self._unsub_timer = async_track_time_interval(
-            self.hass, self._async_tick, timedelta(seconds=UPDATE_INTERVAL)
+        # Tracker subscription provides detectors_flow (includes synthetic when enabled)
+        self._tracker_unsub = async_dispatcher_connect(
+            self.hass, tracker_signal(self._entry.entry_id), self._on_tracker_update
         )
+        # Periodic to advance clocks; start conservative (5s) until activity dictates
+        self._unsub_timer = async_track_time_interval(
+            self.hass, self._async_tick, timedelta(seconds=5)
+        )
+        self._tick_interval_s = 5
+        self._recent_counting_hysteresis_s = 0.0
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
+        if self._tracker_unsub:
+            self._tracker_unsub()
+            self._tracker_unsub = None
         if self._unsub_timer:
             self._unsub_timer()
             self._unsub_timer = None
@@ -371,6 +686,12 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         await self._evaluate(now)
 
     def _current_flow(self) -> Optional[float]:
+        # Prefer detectors flow from tracker when available; fall back to raw entity
+        if self._last_detectors_flow is not None:
+            try:
+                return float(self._last_detectors_flow)
+            except Exception:
+                return 0.0
         st = self.hass.states.get(self._flow_entity_id) if self._flow_entity_id else None
         if not st or st.state in (None, "unknown", "unavailable"):
             return None
@@ -378,6 +699,15 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             return float(st.state)
         except (ValueError, TypeError):
             return None
+
+    @callback
+    def _on_tracker_update(self, state: dict) -> None:
+        try:
+            df = state.get("detectors_flow")
+            if isinstance(df, (int, float)):
+                self._last_detectors_flow = float(df)
+        except Exception:
+            pass
 
     async def _evaluate(self, now: datetime) -> None:
         if self._last_update is None:
@@ -396,7 +726,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         else:  # IN_RANGE or BASELINE treated similarly for now
             counting_active = flow > 0.0 and (self._max_low_flow <= 0.0 or flow <= self._max_low_flow)
 
-        # Seed and count progression
+    # Seed and count progression
         if counting_active:
             # zero-idle resets while active
             self._idle_zero_s = 0.0
@@ -427,6 +757,28 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                 self._seed_progress = 0.0
             else:
                 self._count_progress = 0.0
+
+        # Adjust cadence with brief hysteresis
+        desired = 1 if (counting_active or self._attr_is_on) else 5
+        # Remember recent counting for 3s to avoid flapping
+        if counting_active:
+            self._recent_counting_hysteresis_s = 3.0
+        else:
+            if self._recent_counting_hysteresis_s > 0:
+                self._recent_counting_hysteresis_s = max(0.0, self._recent_counting_hysteresis_s - dt)
+                if self._recent_counting_hysteresis_s > 0:
+                    desired = 1
+        if desired != getattr(self, "_tick_interval_s", 5):
+            # Resubscribe with new interval
+            try:
+                if self._unsub_timer:
+                    self._unsub_timer()
+            except Exception:
+                pass
+            self._tick_interval_s = desired
+            self._unsub_timer = async_track_time_interval(
+                self.hass, self._async_tick, timedelta(seconds=self._tick_interval_s)
+            )
 
         # Clear conditions
         cleared = False

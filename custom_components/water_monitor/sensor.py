@@ -24,13 +24,17 @@ from .const import (
     CONF_MIN_SESSION_VOLUME,
     CONF_MIN_SESSION_DURATION,
     CONF_SESSION_GAP_TOLERANCE,
-    CONF_SESSION_CONTINUITY_WINDOW,
     CONF_SENSOR_PREFIX,
     UPDATE_INTERVAL,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
+    CONF_SYNTHETIC_ENABLE,
+    CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
 )
+from .const import tracker_signal
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .water_session_tracker import WaterSessionTracker
+from .engine import WaterMonitorEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,9 +54,10 @@ async def async_setup_entry(
     min_session_volume = float(_get(CONF_MIN_SESSION_VOLUME, 0.0))
     min_session_duration = int(_get(CONF_MIN_SESSION_DURATION, 0))
     session_gap_tolerance = int(_get(CONF_SESSION_GAP_TOLERANCE, 5))
-    session_continuity_window = int(_get(CONF_SESSION_CONTINUITY_WINDOW, 3))
     sessions_use_baseline_as_zero = bool(_get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, True))
     sessions_idle_to_close_s = int(_get(CONF_SESSIONS_IDLE_TO_CLOSE_S, 10))
+    synthetic_master = bool(_get(CONF_SYNTHETIC_ENABLE, False))
+    include_synth_in_detectors = bool(_get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, False)) and synthetic_master
     sensor_prefix = _get(CONF_SENSOR_PREFIX, config_entry.title or "Water Monitor")
 
     main_sensor = WaterSessionSensor(
@@ -63,9 +68,10 @@ async def async_setup_entry(
         min_session_volume=min_session_volume,
         min_session_duration=min_session_duration,
         session_gap_tolerance=session_gap_tolerance,
-        session_continuity_window=session_continuity_window,
     sessions_use_baseline_as_zero=sessions_use_baseline_as_zero,
     sessions_idle_to_close_s=sessions_idle_to_close_s,
+    include_synth_in_detectors=include_synth_in_detectors,
+    include_synth_in_engine=synthetic_master,
         name=f"{sensor_prefix} Last session volume",
         unique_suffix="last_session",
     )
@@ -105,6 +111,20 @@ async def async_setup_entry(
     main_sensor.add_state_listener(avg_flow_sensor.update_from_tracker)
     main_sensor.add_state_listener(hot_pct_sensor.update_from_tracker)
 
+    # Also forward to engine for persistence/analysis
+    async def _forward_to_engine(state: dict):
+        try:
+            data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+            engine: WaterMonitorEngine | None = data.get("engine") if data else None
+            if engine:
+                await engine.ingest_state(state)
+            # Broadcast live tracker state for other entities (e.g., intelligent leak)
+            async_dispatcher_send(hass, tracker_signal(config_entry.entry_id), state)
+        except Exception:
+            pass
+
+    main_sensor.add_state_listener(_forward_to_engine)
+
     async_add_entities([main_sensor, current_sensor, duration_sensor, avg_flow_sensor, hot_pct_sensor])
 
 
@@ -123,10 +143,12 @@ class WaterSessionSensor(SensorEntity):
         hot_water_sensor: str,
         min_session_volume: float,
         min_session_duration: int,
-    session_gap_tolerance: int,
-    session_continuity_window: int,
-    sessions_use_baseline_as_zero: bool,
-    sessions_idle_to_close_s: int,
+        session_gap_tolerance: int,
+        
+        sessions_use_baseline_as_zero: bool,
+        sessions_idle_to_close_s: int,
+        include_synth_in_detectors: bool,
+        include_synth_in_engine: bool,
         name: str,
         unique_suffix: str,
     ):
@@ -148,7 +170,7 @@ class WaterSessionSensor(SensorEntity):
             min_session_volume=min_session_volume,
             min_session_duration=min_session_duration,
             session_gap_tolerance=session_gap_tolerance,
-            session_continuity_window=session_continuity_window,
+            
         )
 
         # Session boundary tuning
@@ -156,6 +178,15 @@ class WaterSessionSensor(SensorEntity):
         self._sessions_idle_to_close_s = int(sessions_idle_to_close_s)
         self._baseline_entity_id = None
         self._baseline_zero_started_at = None
+
+        # Synthetic handling
+        self._include_synth_in_detectors = bool(include_synth_in_detectors)
+        self._include_synth_in_engine = bool(include_synth_in_engine)
+        # Accumulator to integrate synthetic flow into volume for session metrics when enabled
+        self._synthetic_volume_added = 0.0
+        self._last_synth_update = None
+        self._prev_session_active = False
+        self._last_session_synth_volume = 0.0
 
         # Track entities we're listening to
         self._tracked_entities = (
@@ -166,12 +197,14 @@ class WaterSessionSensor(SensorEntity):
 
         # Periodic update tracking
         self._periodic_update_unsub = None
-        self._needs_periodic_updates = False
+        self._periodic_interval_s = None  # seconds, or None
 
         # Callbacks for dependent sensors (current session + metrics sensors)
         self._listeners = []
+        # Entities we may subscribe to for immediate updates
+        self._synthetic_entity_id = None
 
-    # Note: listeners are initialized per-instance in __init__
+        # Note: listeners are initialized per-instance in __init__
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -222,11 +255,32 @@ class WaterSessionSensor(SensorEntity):
         except Exception:  # registry may not be ready in unit tests
             self._baseline_entity_id = None
 
+        # Resolve Synthetic Flow number entity id (for instant updates when changed)
+        try:
+            reg = er.async_get(self.hass)
+            synth_uid = f"{self._entry.entry_id}_synthetic_flow_gpm"
+            for ent in er.async_entries_for_config_entry(reg, self._entry.entry_id):
+                if ent.unique_id == synth_uid and ent.domain == "number":
+                    self._synthetic_entity_id = ent.entity_id
+                    break
+        except Exception:
+            self._synthetic_entity_id = None
+
+        # Track flow/volume/hot-water changes
         if self._tracked_entities:
             self.async_on_remove(
                 async_track_state_change_event(
                     self.hass,
                     self._tracked_entities,
+                    self._async_sensor_changed,
+                )
+            )
+        # Track synthetic number changes (immediate refresh)
+        if self._synthetic_entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self._synthetic_entity_id],
                     self._async_sensor_changed,
                 )
             )
@@ -238,37 +292,54 @@ class WaterSessionSensor(SensorEntity):
         """Handle sensor state changes."""
         await self._async_update_from_sensors()
 
-    def _schedule_periodic_updates(self, reason: str):
-        """Schedule periodic updates when timing is critical."""
-        if self._periodic_update_unsub is None:
-            _LOGGER.debug("Starting periodic updates: %s", reason)
-            self._periodic_update_unsub = async_track_time_interval(
-                self.hass, self._async_periodic_update, timedelta(seconds=UPDATE_INTERVAL)
-            )
+    def _ensure_timer(self, interval_s: Optional[int], reason: str):
+        """Ensure a periodic timer is running at the desired interval; cancel if None."""
+        # If no interval requested, cancel any existing timer
+        if interval_s is None or interval_s <= 0:
+            if self._periodic_update_unsub is not None:
+                _LOGGER.debug("Stopping periodic updates: %s", reason)
+                self._periodic_update_unsub()
+                self._periodic_update_unsub = None
+                self._periodic_interval_s = None
+            return
+        # If the same interval is already active, nothing to do
+        if self._periodic_update_unsub is not None and self._periodic_interval_s == int(interval_s):
+            return
+        # Otherwise, (re)start timer at new interval
+        if self._periodic_update_unsub is not None:
+            try:
+                self._periodic_update_unsub()
+            except Exception:
+                pass
+            self._periodic_update_unsub = None
+        self._periodic_interval_s = int(interval_s)
+        _LOGGER.debug("Starting periodic updates every %ss: %s", self._periodic_interval_s, reason)
+        self._periodic_update_unsub = async_track_time_interval(
+            self.hass, self._async_periodic_update, timedelta(seconds=self._periodic_interval_s)
+        )
 
     def _cancel_periodic_updates(self, reason: str):
-        """Cancel periodic updates."""
-        if self._periodic_update_unsub is not None:
-            _LOGGER.debug("Stopping periodic updates: %s", reason)
-            self._periodic_update_unsub()
-            self._periodic_update_unsub = None
+        self._ensure_timer(None, reason)
 
     @callback
     async def _async_periodic_update(self, now: datetime) -> None:
         """Handle periodic updates for gap monitoring and session continuation."""
         await self._async_update_from_sensors()
 
-    def _should_use_periodic_updates(self, state_data: dict) -> tuple[bool, str]:
-        """Determine if periodic updates are needed based on current state."""
-        gap_active = state_data.get("gap_active", False)
-        session_active = state_data.get("current_session_active", False)
-        flow_rate = state_data.get("flow_sensor_value", 0.0)
-
-        if gap_active:
-            return True, "gap monitoring"
-        if session_active and flow_rate == 0 and not gap_active:
-            return True, "session continuation monitoring"
-        return False, "no timing operations needed"
+    def _apply_cadence(self, state_data: dict) -> None:
+        """Adaptive cadence: 5s during flow; 1s while gap at zero; none when idle."""
+        session_active = bool(state_data.get("current_session_active", False))
+        gap_active = bool(state_data.get("gap_active", False))
+        flow_used = float(state_data.get("flow_used_by_engine", 0.0))
+        if flow_used > 0.0:
+            # Predictable UI during active water usage
+            self._ensure_timer(5, "active session timing")
+        elif gap_active and flow_used == 0.0:
+            # Tight loop to promptly finalize gaps even while session remains active
+            self._ensure_timer(1, "gap monitoring at zero flow")
+        else:
+            # Idle: cancel periodic updates (event-driven only)
+            self._ensure_timer(None, "idle - event driven")
 
     async def _async_update_from_sensors(self) -> None:
         """Update the sensor from tracked entities."""
@@ -308,7 +379,18 @@ class WaterSessionSensor(SensorEntity):
             # Determine unit from flow sensor
             flow_unit = flow_state.attributes.get("unit_of_measurement")
 
-            # Update the tracker
+            # Synthetic flow from integration-owned number (domain data)
+            synthetic = 0.0
+            try:
+                dd = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                if isinstance(dd, dict):
+                    sv = dd.get("synthetic_flow_gpm")
+                    if isinstance(sv, (int, float)):
+                        synthetic = max(0.0, float(sv))
+            except Exception:
+                synthetic = 0.0
+
+            # Base effective flow (before synthetic and baseline zeroing)
             effective_flow = flow_rate
 
             # Optionally treat near-baseline as zero with hysteresis
@@ -336,21 +418,122 @@ class WaterSessionSensor(SensorEntity):
                     self._baseline_zero_started_at = None
                     # effective_flow remains actual flow
 
+            # Apply synthetic according to flags
+            engine_flow = effective_flow + (synthetic if self._include_synth_in_engine else 0.0)
+            detectors_flow = effective_flow + (synthetic if self._include_synth_in_detectors else 0.0)
+
+            # If a new session is about to start (based on previous active flag),
+            # reset the synthetic accumulator BEFORE computing adjusted volume so the
+            # session baseline doesn't include synthetic from the prior session.
+            if self._include_synth_in_engine and engine_flow > 0.0 and not self._prev_session_active:
+                self._synthetic_volume_added = 0.0
+                self._last_synth_update = current_time
+
+    # Integrate synthetic flow into volume when included for engine so session volume reflects it
+            adjusted_volume_total = volume_total
+            try:
+                if self._include_synth_in_engine:
+                    # Initialize timestamp if needed
+                    if self._last_synth_update is None:
+                        self._last_synth_update = current_time
+            # Reset accumulator at the start of a new session boundary
+            # Detect session start based on previous flag
+            # We'll update prev flag after tracker.update
+                    # Accumulate only when synthetic > 0
+                    if synthetic > 0.0:
+                        dt = (current_time - self._last_synth_update).total_seconds()
+                        if dt > 0:
+                            self._synthetic_volume_added += (synthetic * dt) / 60.0  # gpm * minutes
+                    # Update timestamp each tick to bound dt
+                    self._last_synth_update = current_time
+                    # Always carry the accumulated synthetic gallons into adjusted total
+                    adjusted_volume_total = volume_total + max(0.0, self._synthetic_volume_added)
+                else:
+                    # If synthetic not included in engine, ensure accumulator doesn't leak across sessions
+                    self._last_synth_update = None
+                    self._synthetic_volume_added = 0.0
+            except Exception:
+                adjusted_volume_total = volume_total
+
+            # If synthetic just turned off, ensure finalization can occur promptly by letting
+            # the tracker see idle time. We already pass current_time; the tracker will measure
+            # elapsed since last tick. No extra epsilon flow is used.
             state_data = self._tracker.update(
-                flow_rate=effective_flow,
-                volume_total=volume_total,
+                flow_rate=engine_flow,
+                volume_total=adjusted_volume_total,
                 hot_water_active=hot_water_active,
                 timestamp=current_time,
             )
 
+            # Check session transitions to decide when to snapshot or reset accumulators
+            current_active = bool(state_data.get("current_session_active", False))
+            just_started = current_active and not self._prev_session_active
+            just_ended = (not current_active) and self._prev_session_active
+
+            if just_started:
+                # New session: start with a fresh accumulator
+                self._synthetic_volume_added = 0.0
+                self._last_synth_update = current_time
+            if just_ended:
+                # Snapshot last session's synthetic total for visibility
+                self._last_session_synth_volume = float(max(0.0, self._synthetic_volume_added))
+
             # Add unit info so the current session sensor can sync units
             state_data["volume_unit"] = volume_unit
             state_data["flow_unit"] = flow_unit
+            # Enrich with synthetic/flow context for listeners
+            state_data["flow_base"] = float(flow_rate)
+            state_data["synthetic_flow_gpm"] = float(synthetic)
+            state_data["flow_used_by_engine"] = float(engine_flow)
+            state_data["detectors_flow"] = float(detectors_flow)
+            # Back-compat name used by detectors; reflects detectors_flow
+            state_data["flow_sensor_value"] = float(detectors_flow)
+            state_data["synthetic_volume_added"] = float(self._synthetic_volume_added)
+            # Debug: mirror gap conditions we use for cadence
+            state_data["_cad_gap_active_zero"] = bool(state_data.get("gap_active", False) and float(engine_flow) == 0.0)
 
             # Update this entity's state and attributes (last completed session volume)
             last_session_volume = float(state_data.get("last_session_volume", 0.0))
             self._attr_native_value = round(last_session_volume, 2)
-            self._attr_extra_state_attributes = state_data
+
+            # Slim attributes: expose essentials only (omit all intermediate_* fields)
+            attrs = {
+                # Realtime flags and context
+                "current_session_active": state_data.get("current_session_active", False),
+                "gap_active": state_data.get("gap_active", False),
+                "current_session_start": state_data.get("current_session_start"),
+                "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
+                "original_session_start": state_data.get("original_session_start"),
+                # Current session raw metrics (kept for visibility)
+                "current_session_volume": state_data.get("current_session_volume", 0.0),
+                "current_session_duration": state_data.get("current_session_duration", 0),
+                "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
+                "current_session_hot_water_pct": state_data.get("current_session_hot_water_pct", 0.0),
+                # Last session metrics
+                "last_session_start": state_data.get("last_session_start"),
+                "last_session_end": state_data.get("last_session_end"),
+                "last_session_volume": state_data.get("last_session_volume", 0.0),
+                "last_session_duration": state_data.get("last_session_duration", 0),
+                "last_session_average_flow": state_data.get("last_session_average_flow", 0.0),
+                "last_session_hot_water_pct": state_data.get("last_session_hot_water_pct", 0.0),
+                "last_session_gapped_sessions": state_data.get("last_session_gapped_sessions", 0),
+                # Instantaneous
+                # Reflect detectors view of instantaneous flow
+                "flow_sensor_value": float(detectors_flow),
+                # Extras for visibility
+                "flow_base": float(flow_rate),
+                "synthetic_flow_gpm": float(synthetic),
+                "flow_used_by_engine": float(engine_flow),
+                "detectors_flow": float(detectors_flow),
+                "synthetic_volume_added": round(float(self._synthetic_volume_added), 3),
+                "last_session_synthetic_volume": round(float(self._last_session_synth_volume), 3),
+                # Units and debug
+                "volume_unit": volume_unit,
+                "flow_unit": flow_unit,
+                "unit_of_measurement": volume_unit,
+                "debug_state": state_data.get("debug_state", "UNKNOWN"),
+            }
+            self._attr_extra_state_attributes = attrs
             self._attr_available = True
 
             # Notify all listeners (dependent sensors)
@@ -360,17 +543,14 @@ class WaterSessionSensor(SensorEntity):
                 except Exception as err:
                     _LOGGER.exception("Listener update failed: %s", err)
 
-            # Decide periodic update scheduling
-            should_update, reason = self._should_use_periodic_updates(state_data)
-            if should_update and not self._needs_periodic_updates:
-                self._needs_periodic_updates = True
-                self._schedule_periodic_updates(reason)
-            elif not should_update and self._needs_periodic_updates:
-                self._needs_periodic_updates = False
-                self._cancel_periodic_updates(reason)
+            # Apply adaptive cadence based on state
+            self._apply_cadence(state_data)
 
             # Write state
             self.async_write_ha_state()
+
+            # Update prev active flag for next tick
+            self._prev_session_active = current_active
 
         except (ValueError, TypeError) as e:
             _LOGGER.error("Error parsing sensor values: %s", e)
@@ -427,26 +607,15 @@ class CurrentSessionVolumeSensor(SensorEntity):
         self.async_write_ha_state()
 
     def _calculate_current_volume(self, state_data: dict) -> float:
-        """Calculate the most recent/relevant session volume for the state."""
-        current_volume = state_data.get("current_session_volume", 0.0)
-        intermediate_volume = state_data.get("intermediate_session_volume", 0.0)
-        session_active = state_data.get("current_session_active", False)
-        intermediate_exists = state_data.get("intermediate_session_exists", False)
-
-        if session_active and current_volume > 0:
-            return float(current_volume)
-        elif intermediate_exists and intermediate_volume > 0:
-            return float(intermediate_volume)
-        else:
-            # Session ended (or not started) -> zero
-            return 0.0
+        """Return current session volume if active; otherwise 0."""
+        current_volume = float(state_data.get("current_session_volume", 0.0) or 0.0)
+        session_active = bool(state_data.get("current_session_active", False))
+        return current_volume if session_active and current_volume > 0 else 0.0
 
     def _triage_stage(self, state_data: dict) -> str:
-        """Which stage should drive attributes: current, intermediate, or final."""
+        """Which stage should drive attributes: current or final (no intermediate)."""
         if state_data.get("current_session_active", False) and state_data.get("current_session_volume", 0.0) > 0:
             return "current"
-        if state_data.get("intermediate_session_exists", False) and state_data.get("intermediate_session_volume", 0.0) > 0:
-            return "intermediate"
         return "final"
 
     async def update_from_tracker(self, state_data: dict):
@@ -459,15 +628,11 @@ class CurrentSessionVolumeSensor(SensorEntity):
         current_volume = self._calculate_current_volume(state_data)
         stage = self._triage_stage(state_data)
 
-        # Choose attributes based on stage
+        # Choose attributes based on stage (no intermediate fields)
         if stage == "current":
             session_duration = int(state_data.get("current_session_duration", 0))
             session_avg_flow = float(state_data.get("current_session_average_flow", 0.0))
             session_hot_pct = float(state_data.get("current_session_hot_water_pct", 0.0))
-        elif stage == "intermediate":
-            session_duration = int(state_data.get("intermediate_session_duration", 0))
-            session_avg_flow = float(state_data.get("intermediate_session_average_flow", 0.0))
-            session_hot_pct = float(state_data.get("intermediate_session_hot_water_pct", 0.0))
         else:
             session_duration = int(state_data.get("last_session_duration", 0))
             session_avg_flow = float(state_data.get("last_session_average_flow", 0.0))
@@ -480,26 +645,32 @@ class CurrentSessionVolumeSensor(SensorEntity):
             "session_duration": session_duration,
             "session_average_flow": session_avg_flow,
             "session_hot_water_pct": session_hot_pct,
+            # Session timestamps
+            "current_session_start": state_data.get("current_session_start"),
+            "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
+            "original_session_start": state_data.get("original_session_start"),
+            "last_session_start": state_data.get("last_session_start"),
+            "last_session_end": state_data.get("last_session_end"),
             # Instantaneous and debug
             "flow_sensor_value": state_data.get("flow_sensor_value", 0.0),
-            "current_session_active": state_data.get("current_session_active", False),
-            "intermediate_session_exists": state_data.get("intermediate_session_exists", False),
-            "debug_state": state_data.get("debug_state", "UNKNOWN"),
-            # Raw values (for transparency and UI experimentation)
+            "flow_base": state_data.get("flow_base", 0.0),
+            "synthetic_flow_gpm": state_data.get("synthetic_flow_gpm", 0.0),
+            "flow_used_by_engine": state_data.get("flow_used_by_engine", 0.0),
+            "detectors_flow": state_data.get("detectors_flow", 0.0),
+            "synthetic_volume_added": state_data.get("synthetic_volume_added", 0.0),
+            # Raw current and last values (no intermediate)
             "current_session_volume": state_data.get("current_session_volume", 0.0),
             "current_session_duration": state_data.get("current_session_duration", 0),
             "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
             "current_session_hot_water_pct": state_data.get("current_session_hot_water_pct", 0.0),
-            "intermediate_session_volume": state_data.get("intermediate_session_volume", 0.0),
-            "intermediate_session_duration": state_data.get("intermediate_session_duration", 0),
-            "intermediate_session_average_flow": state_data.get("intermediate_session_average_flow", 0.0),
-            "intermediate_session_hot_water_pct": state_data.get("intermediate_session_hot_water_pct", 0.0),
             "last_session_volume": state_data.get("last_session_volume", 0.0),
             "last_session_duration": state_data.get("last_session_duration", 0),
             "last_session_average_flow": state_data.get("last_session_average_flow", 0.0),
             "last_session_hot_water_pct": state_data.get("last_session_hot_water_pct", 0.0),
-            # Also surface the unit currently in use
+            # Units
             "volume_unit": unit,
+            "flow_unit": state_data.get("flow_unit"),
+            "unit_of_measurement": unit,
         }
 
         # Update state (rounded to 2 decimals)

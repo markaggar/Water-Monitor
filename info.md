@@ -8,7 +8,7 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
 
 - Intelligent session detection
   - Automatically detects water usage sessions from flow/volume sensors
-  - Smart gap handling and session continuation to avoid splitting single sessions
+  - Smart gap handling to avoid splitting single sessions
 - Session sensors
   - Last session volume: Most recently completed session with metadata (rounded to 2 decimals)
   - Current session volume: Real-time view during active use, shows the intermediate volume during gaps, and resets to 0 when a session ends (rounded to 2 decimals)
@@ -56,7 +56,7 @@ Setup page (step 1)
 - Minimum Session Volume
 - Minimum Session Duration (seconds)
 - Gap Tolerance (seconds)
-- Continuity Window (seconds)
+ 
 - Create Low‑flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
 
@@ -119,7 +119,7 @@ Units
 
 - Session starts when flow rises above zero
 - Within‑session gaps are tolerated up to Gap Tolerance
-- After flow stops, the Continuity Window avoids premature finalization
+ 
 - Session finalizes after the window elapses with no resumed flow and passes thresholds
 
 ## Troubleshooting

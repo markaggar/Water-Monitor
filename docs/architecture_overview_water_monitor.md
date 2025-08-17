@@ -34,7 +34,7 @@ Integration goals
     - timestamp
   - Emits structured session state:
     - current_session_* (active session metrics)
-    - intermediate_session_* (gap window/continuation)
+  - intermediate_session_* (gap window)
     - last_session_* (finalized session metrics)
     - flags like gap_active, current_session_active
   - Provides derived fields (averages, durations)
@@ -45,7 +45,7 @@ Integration goals
     - Reads upstream flow/volume/hot_water entities from HA state machine
     - Initializes and advances WaterSessionTracker
     - Derives unit from the source volume sensor
-    - Decides when periodic updates are necessary (gap/session continuation)
+  - Decides when periodic updates are necessary (gap timing)
     - Publishes full state dict as attributes
     - Triggers a callback into the “current” sensor
     - DeviceInfo is consistent with binary_sensor.py to maintain grouping
@@ -104,7 +104,7 @@ Integration goals
   - Updates its own state: last_session_volume
   - Stores tracker output in attributes
   - Forwards a compact state_data dict to CurrentSessionVolumeSensor via callback
-  - Schedules periodic updates if needed (gap continuation, etc.)
+  - Schedules periodic updates if needed (gap timing, etc.)
 
 3) CurrentSessionVolumeSensor (secondary)
 - Receives state_data from the main sensor
@@ -132,7 +132,7 @@ Integration goals
   - Event-driven on upstream changes
   - Uses async_track_time_interval only when necessary:
     - Gap monitoring
-    - Session continuation window after flow drops to zero
+  - Gap tolerance window after flow drops to zero
   - Cancels periodic ticks when not needed
 
 - CurrentSessionVolumeSensor
@@ -203,7 +203,7 @@ All three entities’ device_info match to ensure grouping and consistent brandi
 
 1) Flow rises above zero → WaterSessionSensor reads states, updates tracker.
 2) Tracker starts a session; CurrentSessionVolumeSensor begins reporting current_session_volume.
-3) Flow stops → tracker enters gap/continuation window; WaterSessionSensor schedules periodic ticks.
+3) Flow stops → tracker enters gap window; WaterSessionSensor schedules periodic ticks.
 4) Gap expires → tracker finalizes last_session_*; periodic ticks cancel.
 5) Current sensor drops to 0, last session metrics stay in attributes.
 

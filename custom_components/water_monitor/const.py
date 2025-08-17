@@ -9,12 +9,29 @@ CONF_HOT_WATER_SENSOR = "hot_water_sensor"
 CONF_MIN_SESSION_VOLUME = "min_session_volume"
 CONF_MIN_SESSION_DURATION = "min_session_duration"
 CONF_SESSION_GAP_TOLERANCE = "session_gap_tolerance"
-CONF_SESSION_CONTINUITY_WINDOW = "session_continuity_window"
 CONF_SENSOR_PREFIX = "sensor_prefix"
 
 # Session boundary behavior
 CONF_SESSIONS_USE_BASELINE_AS_ZERO = "sessions_use_baseline_as_zero"
 CONF_SESSIONS_IDLE_TO_CLOSE_S = "sessions_idle_to_close_s"
+
+# Occupancy mode (house-wide) configuration
+CONF_OCC_MODE_ENTITY = "occupancy_mode_entity"  # input_select or similar
+CONF_OCC_STATE_AWAY = "occupancy_state_away"
+CONF_OCC_STATE_VACATION = "occupancy_state_vacation"
+CONF_OCC_STATE_RETURNING = "occupancy_state_returning"
+
+# Intelligent Leak Detection (experimental)
+CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"
+CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"
+
+# Synthetic flow handling
+# Master enable; when False, synthetic isn't used anywhere even if sub-options are set.
+CONF_SYNTHETIC_ENABLE = "synthetic_enable"
+# Detectors may optionally include synthetic in their decisions.
+CONF_INCLUDE_SYNTHETIC_IN_DETECTORS = "include_synthetic_in_detectors"
+# Daily analysis may optionally include synthetic in totals.
+CONF_INCLUDE_SYNTHETIC_IN_DAILY = "include_synthetic_in_daily"
 
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
@@ -43,11 +60,23 @@ DEFAULTS = {
     CONF_MIN_SESSION_VOLUME: 0.0,
     CONF_MIN_SESSION_DURATION: 0,
     CONF_SESSION_GAP_TOLERANCE: 5,
-    CONF_SESSION_CONTINUITY_WINDOW: 3,
     CONF_SENSOR_PREFIX: "Water Monitor",
     # Session boundary behavior
     CONF_SESSIONS_USE_BASELINE_AS_ZERO: True,
     CONF_SESSIONS_IDLE_TO_CLOSE_S: 10,
+    # Occupancy mode defaults
+    CONF_OCC_MODE_ENTITY: "",
+    # Comma-delimited state lists (optional)
+    CONF_OCC_STATE_AWAY: "Away",
+    CONF_OCC_STATE_VACATION: "On Vacation, Returning from Vacation",
+    CONF_OCC_STATE_RETURNING: "Returning from Vacation",
+    # Intelligent detector defaults
+    CONF_INTEL_DETECT_ENABLE: False,
+    CONF_INTEL_LEARNING_ENABLE: True,
+    # Synthetic handling defaults
+    CONF_SYNTHETIC_ENABLE: False,
+    CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,
+    CONF_INCLUDE_SYNTHETIC_IN_DAILY: False,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,
@@ -90,3 +119,14 @@ DEFAULTS.update({
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S: 0,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S: 0,
 })
+
+
+# Dispatcher signal helper for engine updates
+def engine_signal(entry_id: str) -> str:
+    """Return the dispatcher signal name for engine updates for a given entry."""
+    return f"{DOMAIN}_engine_updated_{entry_id}"
+
+
+def tracker_signal(entry_id: str) -> str:
+    """Return the dispatcher signal name carrying live tracker state updates."""
+    return f"{DOMAIN}_tracker_state_{entry_id}"

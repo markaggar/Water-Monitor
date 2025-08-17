@@ -15,10 +15,17 @@ from .const import (
     CONF_MIN_SESSION_VOLUME,
     CONF_MIN_SESSION_DURATION,
     CONF_SESSION_GAP_TOLERANCE,
-    CONF_SESSION_CONTINUITY_WINDOW,
     CONF_SENSOR_PREFIX,
     CONF_SESSIONS_USE_BASELINE_AS_ZERO,
     CONF_SESSIONS_IDLE_TO_CLOSE_S,
+    # synthetic flow handling
+    CONF_SYNTHETIC_ENABLE,
+    CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+    CONF_INCLUDE_SYNTHETIC_IN_DAILY,
+    # occupancy (entity + CSVs)
+    CONF_OCC_MODE_ENTITY,
+    CONF_OCC_STATE_AWAY,
+    CONF_OCC_STATE_VACATION,
     DEFAULTS,
     # low-flow
     CONF_LOW_FLOW_ENABLE,
@@ -46,6 +53,14 @@ from .const import (
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
 )
+
+# New intelligent detection constants were introduced recently; fall back to string keys
+# if running against an older const.py in a live HA instance.
+try:
+    from .const import CONF_INTEL_DETECT_ENABLE, CONF_INTEL_LEARNING_ENABLE  # type: ignore
+except Exception:  # pragma: no cover - compatibility with older installs
+    CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"  # type: ignore
+    CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"  # type: ignore
 
 # Try to use HA selectors; fall back to plain types if not available
 HAS_SELECTORS = True
@@ -131,14 +146,22 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_SESSION_GAP_TOLERANCE, default=ex.get(CONF_SESSION_GAP_TOLERANCE, DEFAULTS[CONF_SESSION_GAP_TOLERANCE]))] = s_int(
         min_=0, step=1
     )
-    fields[vol.Required(CONF_SESSION_CONTINUITY_WINDOW, default=ex.get(CONF_SESSION_CONTINUITY_WINDOW, DEFAULTS[CONF_SESSION_CONTINUITY_WINDOW]))] = s_int(
-        min_=0, step=1
-    )
+    # Continuity window removed; single-knob gap tolerance now governs finalization
     # Session boundary behavior
     fields[vol.Required(CONF_SESSIONS_USE_BASELINE_AS_ZERO, default=ex.get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, DEFAULTS[CONF_SESSIONS_USE_BASELINE_AS_ZERO]))] = s_bool()
     fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
+
+    # Toggles order: low-flow -> tank refill -> intelligent -> synthetic
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
     fields[vol.Required(CONF_TANK_LEAK_ENABLE, default=ex.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))] = s_bool()
+    fields[vol.Required(
+        CONF_INTEL_DETECT_ENABLE,
+        default=ex.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)),
+    )] = s_bool()
+    fields[vol.Required(
+        CONF_SYNTHETIC_ENABLE,
+        default=ex.get(CONF_SYNTHETIC_ENABLE, DEFAULTS.get(CONF_SYNTHETIC_ENABLE, False)),
+    )] = s_bool()
 
     return vol.Schema(fields)
 
@@ -160,7 +183,7 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         min_=1, step=1
     )
 
-    # Counting mode: safe, labeled options (no translation_key) to avoid FE issues
+    # Counting mode: safe, labeled options
     if HAS_SELECTORS:
         fields[vol.Required(
             CONF_LOW_FLOW_COUNTING_MODE,
@@ -176,7 +199,6 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
             }
         })
     else:
-        # Fallback without selectors: just enforce allowed values
         fields[vol.Required(
             CONF_LOW_FLOW_COUNTING_MODE,
             default=ex.get(CONF_LOW_FLOW_COUNTING_MODE, DEFAULTS[CONF_LOW_FLOW_COUNTING_MODE])
@@ -185,13 +207,11 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     fields[vol.Required(CONF_LOW_FLOW_SMOOTHING_S, default=ex.get(CONF_LOW_FLOW_SMOOTHING_S, DEFAULTS[CONF_LOW_FLOW_SMOOTHING_S]))] = s_int(
         min_=0, step=1
     )
-    # Margin used by baseline_latch mode (safe to show always; ignored by other modes)
     fields[vol.Required(CONF_LOW_FLOW_BASELINE_MARGIN_PCT, default=ex.get(CONF_LOW_FLOW_BASELINE_MARGIN_PCT, DEFAULTS[CONF_LOW_FLOW_BASELINE_MARGIN_PCT]))] = s_number(min_=0, step=0.5)
     fields[vol.Required(CONF_LOW_FLOW_COOLDOWN_S, default=ex.get(CONF_LOW_FLOW_COOLDOWN_S, DEFAULTS[CONF_LOW_FLOW_COOLDOWN_S]))] = s_int(
         min_=0, step=1
     )
 
-    # Truly optional; do not pass a default when missing/None
     existing_clear = ex.get(CONF_LOW_FLOW_CLEAR_ON_HIGH_S, None)
     if existing_clear in (None, ""):
         key = vol.Optional(CONF_LOW_FLOW_CLEAR_ON_HIGH_S)
@@ -211,7 +231,6 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         default=ex.get(CONF_TANK_LEAK_MIN_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_VOLUME])
     )] = s_number(min_=0.01, step=0.01)
 
-    # Optional max: allow 0 to disable
     fields[vol.Required(
         CONF_TANK_LEAK_MAX_REFILL_VOLUME,
         default=ex.get(CONF_TANK_LEAK_MAX_REFILL_VOLUME, DEFAULTS[CONF_TANK_LEAK_MAX_REFILL_VOLUME])
@@ -242,7 +261,6 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         default=ex.get(CONF_TANK_LEAK_COOLDOWN_S, DEFAULTS[CONF_TANK_LEAK_COOLDOWN_S])
     )] = s_int(min_=0, step=60)
 
-    # Optional duration gates (0 disables)
     fields[vol.Required(
         CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
         default=ex.get(CONF_TANK_LEAK_MIN_REFILL_DURATION_S, DEFAULTS[CONF_TANK_LEAK_MIN_REFILL_DURATION_S])
@@ -255,13 +273,46 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _intelligent_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
+    ex = existing or {}
+    fields: Dict[Any, Any] = {}
+
+    # Optional occupancy mode entity (input_select preferred)
+    existing_occ = ex.get(CONF_OCC_MODE_ENTITY, None)
+    if existing_occ in (None, ""):
+        fields[vol.Optional(CONF_OCC_MODE_ENTITY)] = s_entity("input_select")
+    else:
+        fields[vol.Optional(CONF_OCC_MODE_ENTITY, default=existing_occ)] = s_entity("input_select")
+
+    # Optional CSV state lists
+    away_default = ex.get(CONF_OCC_STATE_AWAY, DEFAULTS.get(CONF_OCC_STATE_AWAY, ""))
+    vac_default = ex.get(CONF_OCC_STATE_VACATION, DEFAULTS.get(CONF_OCC_STATE_VACATION, ""))
+    if away_default:
+        fields[vol.Optional(CONF_OCC_STATE_AWAY, default=away_default)] = s_text()
+    else:
+        fields[vol.Optional(CONF_OCC_STATE_AWAY)] = s_text()
+    if vac_default:
+        fields[vol.Optional(CONF_OCC_STATE_VACATION, default=vac_default)] = s_text()
+    else:
+        fields[vol.Optional(CONF_OCC_STATE_VACATION)] = s_text()
+
+    fields[vol.Required(
+        CONF_INTEL_LEARNING_ENABLE,
+    default=ex.get(CONF_INTEL_LEARNING_ENABLE, DEFAULTS.get(CONF_INTEL_LEARNING_ENABLE, True))
+    )] = s_bool()
+
+    return vol.Schema(fields)
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._data: Dict[str, Any] = {}
+        self._data = {}
         self._low_flow_enabled = False
         self._tank_leak_enabled = False
+        self._intel_enabled = False
+        self._synthetic_enabled = False
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         errors: Dict[str, str] = {}
@@ -269,14 +320,24 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional occupancy mode entity
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
 
             self._data.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, False))
             self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, False))
+            self._intel_enabled = bool(user_input.get(CONF_INTEL_DETECT_ENABLE, False))
+            self._synthetic_enabled = bool(user_input.get(CONF_SYNTHETIC_ENABLE, False))
+            # Order: low-flow -> tank -> intelligent -> synthetic
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
             if self._tank_leak_enabled:
                 return await self.async_step_tank_leak()
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
 
         return self.async_show_form(step_id="user", data_schema=_main_schema(), errors=errors)
@@ -291,26 +352,67 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data.update(user_input)
             if self._tank_leak_enabled:
                 return await self.async_step_tank_leak()
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self.async_create_entry(
                 title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor",
                 data=self._data,
             )
 
-        # Initial show of low-flow form
-        return self.async_show_form(
-            step_id="low_flow",
-            data_schema=_low_flow_schema(self._data),
-        )
+        return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(self._data))
+
     async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
         if user_input is not None:
             self._data.update(user_input)
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
 
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(self._data))
 
+    async def async_step_intelligent(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            # optional occupancy entity and CSV text fields
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
+            for k in (CONF_OCC_STATE_AWAY, CONF_OCC_STATE_VACATION):
+                if k in user_input and isinstance(user_input[k], str):
+                    norm = ", ".join([p.strip() for p in user_input[k].split(",") if p.strip()])
+                    if norm:
+                        user_input[k] = norm
+                    else:
+                        user_input.pop(k, None)
+            self._data.update(user_input)
+            return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
+
+        return self.async_show_form(step_id="intelligent", data_schema=_intelligent_schema(self._data))
+
+    def _synthetic_schema(self, existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
+        ex = existing or {}
+        fields: Dict[Any, Any] = {}
+        fields[vol.Required(
+            CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+            default=ex.get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, DEFAULTS.get(CONF_INCLUDE_SYNTHETIC_IN_DETECTORS, False)),
+        )] = s_bool()
+        fields[vol.Required(
+            CONF_INCLUDE_SYNTHETIC_IN_DAILY,
+            default=ex.get(CONF_INCLUDE_SYNTHETIC_IN_DAILY, DEFAULTS.get(CONF_INCLUDE_SYNTHETIC_IN_DAILY, False)),
+        )] = s_bool()
+        return vol.Schema(fields)
+
+    async def async_step_synthetic(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            self._data.update(user_input)
+            return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
+
+        return self.async_show_form(step_id="synthetic", data_schema=self._synthetic_schema(self._data))
+
     @staticmethod
     def async_get_options_flow(entry: config_entries.ConfigEntry):
-        # Use the same two-step options flow that mirrors setup
         return WaterMonitorOptionsFlow(entry)
 
 
@@ -321,6 +423,12 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
         self._opts: Dict[str, Any] = {}
         self._low_flow_enabled = bool(self._existing.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
         self._tank_leak_enabled = bool(self._existing.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
+        self._intel_enabled = bool(
+            self._existing.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False))
+        )
+        self._synthetic_enabled = bool(
+            self._existing.get(CONF_SYNTHETIC_ENABLE, DEFAULTS.get(CONF_SYNTHETIC_ENABLE, False))
+        )
 
     @callback
     def _store(self):
@@ -331,14 +439,24 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional occupancy mode entity
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
 
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
             self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
+            self._intel_enabled = bool(user_input.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)))
+            self._synthetic_enabled = bool(user_input.get(CONF_SYNTHETIC_ENABLE, DEFAULTS.get(CONF_SYNTHETIC_ENABLE, False)))
+            # Order: low-flow -> tank -> intelligent -> synthetic
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
             if self._tank_leak_enabled:
                 return await self.async_step_tank_leak()
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self._store()
 
         defaults = {
@@ -351,9 +469,13 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_MIN_SESSION_VOLUME,
                 CONF_MIN_SESSION_DURATION,
                 CONF_SESSION_GAP_TOLERANCE,
-                CONF_SESSION_CONTINUITY_WINDOW,
+                CONF_SESSIONS_USE_BASELINE_AS_ZERO,
+                CONF_SESSIONS_IDLE_TO_CLOSE_S,
+                # Toggles displayed in this order
                 CONF_LOW_FLOW_ENABLE,
                 CONF_TANK_LEAK_ENABLE,
+                CONF_INTEL_DETECT_ENABLE,
+                CONF_SYNTHETIC_ENABLE,
             ]
         }
         return self.async_show_form(step_id="init", data_schema=_main_schema(defaults))
@@ -366,6 +488,10 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             self._opts.update(user_input)
             if self._tank_leak_enabled:
                 return await self.async_step_tank_leak()
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self._store()
 
         defaults = {
@@ -387,6 +513,10 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
     async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
         if user_input is not None:
             self._opts.update(user_input)
+            if self._intel_enabled:
+                return await self.async_step_intelligent()
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
             return self._store()
 
         defaults = {
@@ -404,3 +534,44 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             ]
         }
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(defaults))
+
+    async def async_step_intelligent(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
+                user_input.pop(CONF_OCC_MODE_ENTITY, None)
+            for k in (CONF_OCC_STATE_AWAY, CONF_OCC_STATE_VACATION):
+                if k in user_input and isinstance(user_input[k], str):
+                    norm = ", ".join([p.strip() for p in user_input[k].split(",") if p.strip()])
+                    if norm:
+                        user_input[k] = norm
+                    else:
+                        user_input.pop(k, None)
+            self._opts.update(user_input)
+            if self._synthetic_enabled:
+                return await self.async_step_synthetic()
+            return self._store()
+
+        defaults = {
+            k: self._existing.get(k, DEFAULTS.get(k))
+            for k in [
+                CONF_OCC_MODE_ENTITY,
+                CONF_OCC_STATE_AWAY,
+                CONF_OCC_STATE_VACATION,
+                CONF_INTEL_LEARNING_ENABLE,
+            ]
+        }
+        return self.async_show_form(step_id="intelligent", data_schema=_intelligent_schema(defaults))
+
+    async def async_step_synthetic(self, user_input: Optional[Dict[str, Any]] = None):
+        if user_input is not None:
+            self._opts.update(user_input)
+            return self._store()
+
+        defaults = {
+            k: self._existing.get(k, DEFAULTS.get(k))
+            for k in [
+                CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
+                CONF_INCLUDE_SYNTHETIC_IN_DAILY,
+            ]
+        }
+        return self.async_show_form(step_id="synthetic", data_schema=ConfigFlow._synthetic_schema(self, defaults))

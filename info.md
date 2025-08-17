@@ -2,8 +2,6 @@
 
 A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
 
-<img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/acbfb0a0-882a-4ad6-9ed6-f97f6c3c9194" />
-
 ## Features
 
 - Intelligent session detection

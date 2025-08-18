@@ -43,6 +43,8 @@ HACS
 - Add this repository in HACS as a Custom repository under Integrations (see repo URL).
 - Install “Water Monitor,” restart Home Assistant, and add the integration.
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
+
 ## Configuration
 
 <img width="364" height="920" alt="image" src="https://github.com/user-attachments/assets/0c773851-d4fa-4782-8683-b673e0701524" />

@@ -1,8 +1,6 @@
 # Water Monitor
 
-<img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/f3bbd8f3-52f9-4676-b80b-fd601021192c" />
-
-A Home Assistant custom integration for intelligent water usage monitoring with robust session tracking, gap handling, hot water analytics, and optional leak detection. Supports multiple instances, reconfiguration via the UI, and clean sensor naming to avoid collisions.
+A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection. Only a Flow sensor is required; a Volume sensor is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
 <img width="449" height="666" alt="image" src="https://github.com/user-attachments/assets/a8cdcfeb-f03d-4e9c-9527-e7230c58ddd8" />
 
@@ -51,8 +49,8 @@ HACS
 
 Setup page (step 1)
 - Sensor Name Prefix
-- Flow Rate Sensor
-- Volume Sensor
+- Flow Rate Sensor (required)
+- Volume Sensor (optional; if provided, Water Monitor uses it as the source of truth. If omitted, Water Monitor computes volume from the flow sensor.)
 - Hot Water Sensor (optional)
 - Minimum Session Volume
 - Minimum Session Duration (seconds)
@@ -98,25 +96,29 @@ Intelligent Leak Detection (experimental)
 - Enable learning mode (toggle)
 
 Notes
+
 - CSV fields accept multiple labels separated by commas, e.g. "On Vacation, Returning from Vacation".
 - Learning mode is intended for future automation-assisted tuning; you can toggle it via Options or automations.
 
 Reconfiguration
+
 - Open Settings → Devices & Services → Water Monitor → Configure.
 - The low-flow leak sensor is optional and can be enabled/disabled at any time:
   - Enabling creates the binary sensor.
   - Disabling removes the binary sensor on reload.
 
 Units
-- Volume sensors determine unit display (gallons/liters) for both session sensors.
+
+- If a Volume sensor is configured, its unit determines display (gallons/liters) and ensures alignment with the Energy dashboard.
+- If no Volume sensor is configured, Water Monitor computes volume by integrating the Flow sensor (default method: Trapezoidal; alternative: Left to match external counters). Units are inferred from the Flow sensor (e.g., GPM → gal, L/min → L).
 - Flow sensor units are reflected in the low-flow leak sensor attributes and used for last-session average flow when possible.
-- Average flow sensor displays as <volume_unit>/min derived from the source volume unit.
+- Average flow sensor displays as <volume_unit>/min derived from the volume unit.
 
 ## Sensors created
 
 - Last session volume (sensor)
   - State: Last completed session volume (rounded to 2 decimals)
-  - Attributes: durations, averages, hot-water percentage, flow_sensor_value, debug_state, and live tracker fields
+  - Attributes: durations, averages, hot-water percentage, integration_method (external_volume_sensor | trapezoidal | left), sampling_active_seconds, sampling_gap_seconds, flow_sensor_value, debug_state, and live tracker fields
 - Current session volume (sensor)
   - State: Live session volume; during gaps shows intermediate volume; after finalization resets to 0 (rounded to 2 decimals)
   - Attributes: session_stage, session_duration, session_average_flow, session_hot_water_pct, raw values
@@ -152,13 +154,14 @@ Units
     - last_event: ISO timestamp of last considered refill
     - min_refill_duration_s, max_refill_duration_s
     - contributing_events: array of {ts, volume, duration_s}
- - Upstream sensors health (binary_sensor)
-   - State: on/off (device_class: connectivity)
-   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
+- Upstream sensors health (binary_sensor)
+  - State: on/off (device_class: connectivity)
+  - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
 
 ## How it works
 
 ### Session detection
+
 1) Session starts when flow goes from 0 to >0
 2) Within-session gaps are tolerated up to Gap Tolerance
 3) After flow stops, the session remains open for the Gap Tolerance; if flow resumes within the tolerance, it’s one session

@@ -36,6 +36,12 @@ CONF_INCLUDE_SYNTHETIC_IN_DAILY = "include_synthetic_in_daily"
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
+# Volume calculation (optional)
+CONF_CALC_VOLUME_FROM_FLOW = "calc_volume_from_flow"
+CONF_INTEGRATION_METHOD = "integration_method"  # trapezoidal | left
+INTEGRATION_METHOD_TRAPEZOIDAL = "trapezoidal"
+INTEGRATION_METHOD_LEFT = "left"
+
 # Low-flow leak detector (optional) - config/option keys
 CONF_LOW_FLOW_ENABLE = "low_flow_enable"
 CONF_LOW_FLOW_MAX_FLOW = "low_flow_max_flow"  # threshold defining "low flow" (e.g., 0.5 gpm)
@@ -77,6 +83,9 @@ DEFAULTS = {
     CONF_SYNTHETIC_ENABLE: False,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,
     CONF_INCLUDE_SYNTHETIC_IN_DAILY: False,
+    # Volume integration
+    CONF_CALC_VOLUME_FROM_FLOW: False,  # non-breaking default; can be enabled in Options
+    CONF_INTEGRATION_METHOD: INTEGRATION_METHOD_TRAPEZOIDAL,
     # Low-flow
     CONF_LOW_FLOW_ENABLE: False,
     CONF_LOW_FLOW_MAX_FLOW: 0.5,

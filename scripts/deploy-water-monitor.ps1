@@ -4,7 +4,9 @@ param(
     [string]$VerifyEntity,
     [switch]$DumpErrorLog,
     [switch]$DumpErrorLogOnFail,
-    [switch]$FailOnNoRestart
+    [switch]$FailOnNoRestart,
+    [switch]$ForceCopy
+    , [switch]$AlwaysRestart
 )
 
 # Resolve repo root relative to this script
@@ -40,6 +42,10 @@ $robocopyArgs = @(
     '/XF','*.pyc','*.pyo',
     '/XD','__pycache__'
 )
+if ($ForceCopy) {
+    # Include same and tweaked to force copying even if timestamps/sizes look identical on Samba
+    $robocopyArgs += @('/IS','/IT')
+}
 
 # Run and capture exit code; treat 0..7 as success per Robocopy semantics
 & robocopy $robocopyArgs | Out-Null
@@ -103,10 +109,14 @@ try {
     Write-Warning "Package copy step error: $($_.Exception.Message)"
 }
 
-# If no changes to component or packages, skip HA restart entirely
+# If no changes detected, optionally force a restart if -AlwaysRestart was passed
 if (-not $componentCopied -and -not $packagesCopied) {
-    Write-Host "No changes detected (component or packages). Skipping HA restart." -ForegroundColor DarkGray
-    exit 0
+    if ($AlwaysRestart) {
+        Write-Host "No changes detected, but -AlwaysRestart was specified. Proceeding to restart HA." -ForegroundColor Yellow
+    } else {
+        Write-Host "No changes detected (component or packages). Skipping HA restart." -ForegroundColor DarkGray
+        exit 0
+    }
 }
 
 # Optional: Restart Home Assistant via REST if env vars are present
@@ -124,31 +134,29 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     $headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
     $basicHeaders = @{ Authorization = "Bearer $token" }
     
-    function Fetch-HAErrorLog {
+    function Get-HAErrorLogTail {
         param([string]$why)
         try {
             $logUri = "$baseUrl/api/error_log"
             $logHeaders = @{ Authorization = "Bearer $token"; 'Accept' = 'text/plain' }
             Write-Host "Fetching HA error log ($why): $logUri" -ForegroundColor DarkGray
-            $logResp = Invoke-WebRequest -Method Get -Uri $logUri -Headers $logHeaders -TimeoutSec 20 -ErrorAction Stop
-            $content = $logResp.Content
-            if (-not [string]::IsNullOrEmpty($content)) {
-                $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
-                $outFile = Join-Path $repoRoot "ha-error-log-$ts.log"
-                $content | Out-File -FilePath $outFile -Encoding UTF8
-                Write-Host "Saved HA error log to $outFile" -ForegroundColor DarkGray
-                # Print a short tail to console for quick visibility
-                $lines = $content -split "`n"
-                $tail = ($lines | Select-Object -Last 80) -join "`n"
-                if ($tail) { Write-Host "--- HA error log (last 80 lines) ---`n$tail`n--- end ---" -ForegroundColor DarkYellow }
-                # Component-specific tail for faster diagnosis
-                $wmLines = $lines | Where-Object { $_ -match 'custom_components\.water_monitor| water_monitor ' }
-                if ($wmLines -and $wmLines.Count -gt 0) {
-                    $wmTail = ($wmLines | Select-Object -Last 60) -join "`n"
-                    if ($wmTail) { Write-Host "--- Water Monitor related log lines (last 60) ---`n$wmTail`n--- end ---" -ForegroundColor Yellow }
-                }
+            $logTxt = Invoke-RestMethod -Method Get -Uri $logUri -Headers $logHeaders -TimeoutSec 20 -ErrorAction Stop
+            if ([string]::IsNullOrWhiteSpace($logTxt)) { Write-Host "HA error log returned empty content." -ForegroundColor DarkGray; return }
+            $lines = $logTxt -split "`n"
+            $tail = ($lines | Select-Object -Last 120) -join "`n"
+            if ($tail) { Write-Host "--- HA error log (last 120 lines) ---`n$tail`n--- end ---" -ForegroundColor DarkYellow }
+            $wmLines = $lines | Where-Object { $_ -match 'custom_components\.water_monitor| water_monitor ' }
+            if ($wmLines -and $wmLines.Count -gt 0) {
+                $wmTail = ($wmLines | Select-Object -Last 120) -join "`n"
+                if ($wmTail) { Write-Host "--- Water Monitor related log lines (last 120) ---`n$wmTail`n--- end ---" -ForegroundColor Yellow }
             } else {
-                Write-Host "HA error log returned empty content." -ForegroundColor DarkGray
+                Write-Host "No Water Monitor specific lines found in the recent log tail." -ForegroundColor DarkGray
+            }
+            if ($env:WM_SAVE_ERROR_LOG_TO_TEMP -match '^(1|true|yes)$') {
+                $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
+                $tmpFile = Join-Path $env:TEMP "ha-error-log-$ts.log"
+                $logTxt | Out-File -FilePath $tmpFile -Encoding UTF8
+                Write-Host "Saved HA error log to $tmpFile" -ForegroundColor DarkGray
             }
         } catch {
             Write-Warning "Failed to fetch HA error log: $($_.Exception.Message)"
@@ -224,7 +232,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     }
 
     if (-not $configValid) {
-        if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'config check failed (pre-restart)' }
+        if ($DumpErrorLogOnFail) { Get-HAErrorLogTail -why 'config check failed (pre-restart)' }
         $script:wmFail = $true
         Write-Host "Skipping restart due to invalid configuration." -ForegroundColor Yellow
         return
@@ -285,7 +293,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     }
     if (-not $back) {
         Write-Warning "HA did not respond with HTTP 200 within $maxWait s; it may still be restarting."
-    if ($DumpErrorLogOnFail) { Fetch-HAErrorLog -why 'restart did not return 200 in time' }
+        if ($DumpErrorLogOnFail) { Get-HAErrorLogTail -why 'restart did not return 200 in time' }
     }
 
     # If we requested a restart but never observed downtime, warn (and optionally fail)
@@ -327,12 +335,37 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
             Write-Warning "Entity $VerifyEntity was not available within ${verifyMaxWait}s. Possible regression introduced."
             $script:wmFail = $true
             # Always fetch error log on verification failure for quick triage
-            Fetch-HAErrorLog -why 'entity verification failed (sensor may not have loaded)'
+            Get-HAErrorLogTail -why 'entity verification failed (sensor may not have loaded)'
+        }
+        
+        # Attribute verification (basic sanity): ensure integration_method and sampling cadence attributes are present
+        if ($ok) {
+            try {
+                $stateResp2 = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/states/$VerifyEntity" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+                if ($stateResp2.StatusCode -eq 200) {
+                    $obj2 = $stateResp2.Content | ConvertFrom-Json
+                    $attrs = $obj2.attributes
+                    $hasMethod = $attrs.PSObject.Properties.Name -contains 'integration_method'
+                    $hasActive = $attrs.PSObject.Properties.Name -contains 'sampling_active_seconds'
+                    $hasGap = $attrs.PSObject.Properties.Name -contains 'sampling_gap_seconds'
+                    if (-not $hasMethod -or -not $hasActive -or -not $hasGap) {
+                        Write-Warning "Attribute verification failed: missing expected attributes on $VerifyEntity (integration_method/sampling_*)."
+                        $script:wmFail = $true
+                        Get-HAErrorLogTail -why 'attribute verification failed (attributes missing or not populated)'
+                    } else {
+                        Write-Host "Attribute verification passed for $VerifyEntity (integration_method=$($attrs.integration_method), sampling_active_seconds=$($attrs.sampling_active_seconds), sampling_gap_seconds=$($attrs.sampling_gap_seconds))." -ForegroundColor DarkGray
+                    }
+                }
+            } catch {
+                Write-Warning "Attribute verification request failed: $($_.Exception.Message)"
+                $script:wmFail = $true
+                Get-HAErrorLogTail -why 'attribute verification request failed'
+            }
         }
     }
 
     # Optional: always dump error log after restart (useful when diagnosing load issues)
-    if ($DumpErrorLog) { Fetch-HAErrorLog -why 'post-restart (requested)'}
+    if ($DumpErrorLog) { Get-HAErrorLogTail -why 'post-restart (requested)'}
 } else {
     Write-Host "Skipping HA restart (set HA_BASE_URL and HA_TOKEN to enable)." -ForegroundColor DarkGray
 }

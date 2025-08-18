@@ -139,6 +139,8 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         fields[vol.Optional(CONF_VOLUME_SENSOR)] = s_entity("sensor")
     else:
         fields[vol.Optional(CONF_VOLUME_SENSOR, default=existing_vol)] = s_entity("sensor")
+        # Convenience: show clear toggle directly below the volume selector when applicable
+        fields[vol.Optional("clear_volume_sensor", default=False)] = s_bool()
 
     # Optional hot water sensor; include default if present so reconfigure shows prior value
     existing_hot = ex.get(CONF_HOT_WATER_SENSOR, None)
@@ -146,6 +148,8 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         fields[vol.Optional(CONF_HOT_WATER_SENSOR)] = s_entity("binary_sensor")
     else:
         fields[vol.Optional(CONF_HOT_WATER_SENSOR, default=existing_hot)] = s_entity("binary_sensor")
+        # Convenience: show clear toggle directly below the hot water selector when applicable
+        fields[vol.Optional("clear_hot_water_sensor", default=False)] = s_bool()
 
     fields[vol.Required(CONF_MIN_SESSION_VOLUME, default=ex.get(CONF_MIN_SESSION_VOLUME, DEFAULTS[CONF_MIN_SESSION_VOLUME]))] = s_number(
         min_=0, step=0.01
@@ -352,17 +356,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         errors: Dict[str, str] = {}
         if user_input is not None:
-            # Sanitize optional hot water: treat empty strings as absent
+            # Sanitize optional hot water: store blank explicitly to override existing data
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
-                user_input.pop(CONF_HOT_WATER_SENSOR, None)
-            # Sanitize optional volume sensor: treat empty strings as absent
+                user_input[CONF_HOT_WATER_SENSOR] = ""
+            # If the optional field is omitted entirely, force an explicit blank to avoid falling back to old entry.data
+            if CONF_HOT_WATER_SENSOR not in user_input:
+                user_input[CONF_HOT_WATER_SENSOR] = ""
+            # Apply explicit clear toggles if present
+            if user_input.get("clear_hot_water_sensor"):
+                user_input[CONF_HOT_WATER_SENSOR] = ""
+            # Sanitize optional volume sensor: store blank explicitly to override existing data
             vol_missing = False
             if CONF_VOLUME_SENSOR in user_input and not user_input[CONF_VOLUME_SENSOR]:
-                user_input.pop(CONF_VOLUME_SENSOR, None)
+                user_input[CONF_VOLUME_SENSOR] = ""
                 vol_missing = True
+            # If omitted entirely, force explicit blank so options always override entry.data
+            if CONF_VOLUME_SENSOR not in user_input:
+                user_input[CONF_VOLUME_SENSOR] = ""
+            # Apply explicit clear toggles if present
+            if user_input.get("clear_volume_sensor"):
+                user_input[CONF_VOLUME_SENSOR] = ""
             # Sanitize optional occupancy mode entity
             if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
                 user_input.pop(CONF_OCC_MODE_ENTITY, None)
+            # Remove helper toggles from payload prior to storing
+            user_input.pop("clear_volume_sensor", None)
+            user_input.pop("clear_hot_water_sensor", None)
 
             # If volume sensor omitted, prefer integration-from-flow
             if vol_missing or not user_input.get(CONF_VOLUME_SENSOR):
@@ -383,8 +402,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._synthetic_enabled:
                 return await self.async_step_synthetic()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
-
-        return self.async_show_form(step_id="user", data_schema=_main_schema(), errors=errors)
+        # Present empty defaults; if re-entry via Abort/Back, normalize blanks
+        schema = _main_schema()
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     async def async_step_low_flow(self, user_input: Optional[Dict[str, Any]] = None):
         """Step to configure low-flow leak sensor settings."""
@@ -482,15 +502,30 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
-                user_input.pop(CONF_HOT_WATER_SENSOR, None)
+                user_input[CONF_HOT_WATER_SENSOR] = ""
+            # If omitted, force blank to override entry.data on save
+            if CONF_HOT_WATER_SENSOR not in user_input:
+                user_input[CONF_HOT_WATER_SENSOR] = ""
+            # Apply explicit clear toggles if present
+            if user_input.get("clear_hot_water_sensor"):
+                user_input[CONF_HOT_WATER_SENSOR] = ""
             # Sanitize optional volume sensor: treat empty strings as absent
             vol_missing = False
             if CONF_VOLUME_SENSOR in user_input and not user_input[CONF_VOLUME_SENSOR]:
-                user_input.pop(CONF_VOLUME_SENSOR, None)
+                user_input[CONF_VOLUME_SENSOR] = ""
                 vol_missing = True
+            # If omitted, force blank to override entry.data on save
+            if CONF_VOLUME_SENSOR not in user_input:
+                user_input[CONF_VOLUME_SENSOR] = ""
+            # Apply explicit clear toggles if present
+            if user_input.get("clear_volume_sensor"):
+                user_input[CONF_VOLUME_SENSOR] = ""
             # Sanitize optional occupancy mode entity
             if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
                 user_input.pop(CONF_OCC_MODE_ENTITY, None)
+            # Remove helper toggles from payload prior to storing
+            user_input.pop("clear_volume_sensor", None)
+            user_input.pop("clear_hot_water_sensor", None)
 
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
@@ -532,6 +567,11 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_SYNTHETIC_ENABLE,
             ]
         }
+        # Normalize blanks for option selectors: show truly empty fields when stored as ""
+        if isinstance(defaults.get(CONF_VOLUME_SENSOR), str) and defaults.get(CONF_VOLUME_SENSOR) == "":
+            defaults[CONF_VOLUME_SENSOR] = None
+        if isinstance(defaults.get(CONF_HOT_WATER_SENSOR), str) and defaults.get(CONF_HOT_WATER_SENSOR) == "":
+            defaults[CONF_HOT_WATER_SENSOR] = None
         return self.async_show_form(step_id="init", data_schema=_main_schema(defaults))
 
     async def async_step_low_flow(self, user_input: Optional[Dict[str, Any]] = None):

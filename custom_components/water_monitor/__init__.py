@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import config_validation as cv
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 
@@ -9,6 +10,9 @@ from .engine import WaterMonitorEngine  # new engine
 
 # Platforms provided by this integration
 PLATFORMS: list[str] = ["sensor", "binary_sensor", "number"]
+
+# This integration is config-entry only (no YAML).
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

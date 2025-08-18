@@ -22,6 +22,11 @@ from .const import (
     CONF_SYNTHETIC_ENABLE,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS,
     CONF_INCLUDE_SYNTHETIC_IN_DAILY,
+    # volume integration
+    CONF_CALC_VOLUME_FROM_FLOW,
+    CONF_INTEGRATION_METHOD,
+    INTEGRATION_METHOD_TRAPEZOIDAL,
+    INTEGRATION_METHOD_LEFT,
     # occupancy (entity + CSVs)
     CONF_OCC_MODE_ENTITY,
     CONF_OCC_STATE_AWAY,
@@ -128,7 +133,12 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
 
     fields[vol.Required(CONF_SENSOR_PREFIX, default=ex.get(CONF_SENSOR_PREFIX, DEFAULTS[CONF_SENSOR_PREFIX]))] = str
     fields[vol.Required(CONF_FLOW_SENSOR, default=ex.get(CONF_FLOW_SENSOR, ""))] = s_entity("sensor")
-    fields[vol.Required(CONF_VOLUME_SENSOR, default=ex.get(CONF_VOLUME_SENSOR, ""))] = s_entity("sensor")
+    # Optional volume sensor: if existing, include default; else present without default
+    existing_vol = ex.get(CONF_VOLUME_SENSOR, None)
+    if existing_vol in (None, ""):
+        fields[vol.Optional(CONF_VOLUME_SENSOR)] = s_entity("sensor")
+    else:
+        fields[vol.Optional(CONF_VOLUME_SENSOR, default=existing_vol)] = s_entity("sensor")
 
     # Optional hot water sensor; include default if present so reconfigure shows prior value
     existing_hot = ex.get(CONF_HOT_WATER_SENSOR, None)
@@ -150,6 +160,31 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
     # Session boundary behavior
     fields[vol.Required(CONF_SESSIONS_USE_BASELINE_AS_ZERO, default=ex.get(CONF_SESSIONS_USE_BASELINE_AS_ZERO, DEFAULTS[CONF_SESSIONS_USE_BASELINE_AS_ZERO]))] = s_bool()
     fields[vol.Required(CONF_SESSIONS_IDLE_TO_CLOSE_S, default=ex.get(CONF_SESSIONS_IDLE_TO_CLOSE_S, DEFAULTS[CONF_SESSIONS_IDLE_TO_CLOSE_S]))] = s_int(min_=0, step=1)
+
+    # Volume calculation from flow is automatic: enabled when no volume sensor is configured.
+    # No explicit toggle is shown in the UI to avoid confusion.
+    # Integration method selection (advanced): only relevant when no volume sensor is configured.
+    # Place at the bottom; label clarified via translations.
+    existing_vol = ex.get(CONF_VOLUME_SENSOR, None)
+    if not existing_vol:
+        if HAS_SELECTORS:
+            fields[vol.Required(
+                CONF_INTEGRATION_METHOD,
+                default=ex.get(CONF_INTEGRATION_METHOD, DEFAULTS[CONF_INTEGRATION_METHOD])
+            )] = ha_selector({
+                "select": {
+                    "options": [
+                        {"label": "Trapezoidal (recommended)", "value": INTEGRATION_METHOD_TRAPEZOIDAL},
+                        {"label": "Left (match external counters)", "value": INTEGRATION_METHOD_LEFT}
+                    ],
+                    "mode": "list"
+                }
+            })
+        else:
+            fields[vol.Required(
+                CONF_INTEGRATION_METHOD,
+                default=ex.get(CONF_INTEGRATION_METHOD, DEFAULTS[CONF_INTEGRATION_METHOD])
+            )] = vol.In([INTEGRATION_METHOD_TRAPEZOIDAL, INTEGRATION_METHOD_LEFT])
 
     # Toggles order: low-flow -> tank refill -> intelligent -> synthetic
     fields[vol.Required(CONF_LOW_FLOW_ENABLE, default=ex.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))] = s_bool()
@@ -320,9 +355,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional volume sensor: treat empty strings as absent
+            vol_missing = False
+            if CONF_VOLUME_SENSOR in user_input and not user_input[CONF_VOLUME_SENSOR]:
+                user_input.pop(CONF_VOLUME_SENSOR, None)
+                vol_missing = True
             # Sanitize optional occupancy mode entity
             if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
                 user_input.pop(CONF_OCC_MODE_ENTITY, None)
+
+            # If volume sensor omitted, prefer integration-from-flow
+            if vol_missing or not user_input.get(CONF_VOLUME_SENSOR):
+                user_input[CONF_CALC_VOLUME_FROM_FLOW] = True
 
             self._data.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, False))
@@ -439,6 +483,11 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             # Sanitize optional hot water: treat empty strings as absent
             if CONF_HOT_WATER_SENSOR in user_input and not user_input[CONF_HOT_WATER_SENSOR]:
                 user_input.pop(CONF_HOT_WATER_SENSOR, None)
+            # Sanitize optional volume sensor: treat empty strings as absent
+            vol_missing = False
+            if CONF_VOLUME_SENSOR in user_input and not user_input[CONF_VOLUME_SENSOR]:
+                user_input.pop(CONF_VOLUME_SENSOR, None)
+                vol_missing = True
             # Sanitize optional occupancy mode entity
             if CONF_OCC_MODE_ENTITY in user_input and not user_input[CONF_OCC_MODE_ENTITY]:
                 user_input.pop(CONF_OCC_MODE_ENTITY, None)
@@ -448,6 +497,9 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             self._tank_leak_enabled = bool(user_input.get(CONF_TANK_LEAK_ENABLE, DEFAULTS[CONF_TANK_LEAK_ENABLE]))
             self._intel_enabled = bool(user_input.get(CONF_INTEL_DETECT_ENABLE, DEFAULTS.get(CONF_INTEL_DETECT_ENABLE, False)))
             self._synthetic_enabled = bool(user_input.get(CONF_SYNTHETIC_ENABLE, DEFAULTS.get(CONF_SYNTHETIC_ENABLE, False)))
+            # If volume sensor omitted, prefer integration-from-flow
+            if vol_missing or not user_input.get(CONF_VOLUME_SENSOR):
+                self._opts[CONF_CALC_VOLUME_FROM_FLOW] = True
             # Order: low-flow -> tank -> intelligent -> synthetic
             if self._low_flow_enabled:
                 return await self.async_step_low_flow()
@@ -471,6 +523,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_SESSION_GAP_TOLERANCE,
                 CONF_SESSIONS_USE_BASELINE_AS_ZERO,
                 CONF_SESSIONS_IDLE_TO_CLOSE_S,
+                # Volume integration method (advanced)
+                CONF_INTEGRATION_METHOD,
                 # Toggles displayed in this order
                 CONF_LOW_FLOW_ENABLE,
                 CONF_TANK_LEAK_ENABLE,

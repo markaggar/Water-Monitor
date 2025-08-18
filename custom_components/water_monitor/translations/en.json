@@ -8,8 +8,9 @@
         "data": {
           "sensor_prefix": "Sensor name prefix",
           "flow_sensor": "Flow sensor",
-          "volume_sensor": "Volume sensor",
+          "volume_sensor": "Volume sensor (optional)",
           "hot_water_sensor": "Hot water binary sensor (optional)",
+          "integration_method": "Integration method (when no volume sensor specified)",
           "min_session_volume": "Minimum session volume",
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
@@ -19,6 +20,9 @@
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        },
+        "data_description": {
+          "integration_method": "Only used when computing volume from the flow sensor. Trapezoidal (recommended) gives better accuracy on changing flow. Left matches external counters that tick once per update."
         }
       },
       "synthetic": {
@@ -96,8 +100,9 @@
         "data": {
           "sensor_prefix": "Sensor name prefix",
           "flow_sensor": "Flow sensor",
-          "volume_sensor": "Volume sensor",
+          "volume_sensor": "Volume sensor (optional)",
           "hot_water_sensor": "Hot water binary sensor (optional)",
+          "integration_method": "Integration method (when no volume sensor specified)",
           "min_session_volume": "Minimum session volume",
           "min_session_duration": "Minimum session duration (seconds)",
           "session_gap_tolerance": "Gap tolerance (seconds)",
@@ -107,6 +112,9 @@
           "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
           "low_flow_enable": "Enable low-flow leak detection",
           "tank_refill_leak_enable": "Enable tank refill leak detection"
+        },
+        "data_description": {
+          "integration_method": "Only used when computing volume from the flow sensor. Trapezoidal (recommended) gives better accuracy on changing flow. Left matches external counters that tick once per update."
         }
       },
       "synthetic": {

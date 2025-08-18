@@ -31,48 +31,48 @@ class WaterSessionTracker:
         self,
         min_session_volume: float = 0.0,
         min_session_duration: int = 0,
-    session_gap_tolerance: int = 5,
+        session_gap_tolerance: int = 5,
     ):
         self.min_session_volume = min_session_volume
         self.min_session_duration = min_session_duration
         self.session_gap_tolerance = session_gap_tolerance
-        
+
         # Current state
         self.flow_rate = 0.0
         self.volume_total = 0.0
         self.hot_water_active = False
-        
+
         # Previous state for change detection/accumulation
         self._prev_flow_rate = 0.0
         self._prev_hot_water_active = False
         self._prev_session_active = False
         self._prev_gap_active = False
-        
+
         # Session tracking
         self._session_active = False
         self._gap_active = False
-        self._original_session_start: Optional[datetime] = None
-        self._current_session_start: Optional[datetime] = None
+        self._original_session_start = None
+        self._current_session_start = None
         self._session_start_volume = 0.0
         self._gapped_sessions_count = 0
 
         # Time accumulation
-        self._last_update_ts: Optional[datetime] = None
-        self._current_session_duration_secs: int = 0
-        self._current_hot_water_duration_secs: int = 0
+        self._last_update_ts = None
+        self._current_session_duration_secs = 0.0
+        self._current_hot_water_duration_secs = 0.0
 
         # Intermediate session (for gap handling)
         self._intermediate_exists = False
-        self._intermediate_start: Optional[datetime] = None
+        self._intermediate_start = None
         self._intermediate_duration = 0
         self._intermediate_volume = 0.0
         self._intermediate_hot_water_duration = 0
-        
-    # Session end candidate tracking (gap-based finalization)
-        self._session_end_candidate_time: Optional[datetime] = None
-        
+
+        # Session end candidate tracking (gap-based finalization)
+        self._session_end_candidate_time = None
+
         # Last completed session
-        self.last_session: Optional[WaterSession] = None
+        self.last_session = None
 
     def _ensure_utc(self, dt: datetime) -> datetime:
         """Ensure datetime is in UTC timezone."""
@@ -86,12 +86,13 @@ class WaterSessionTracker:
             self._last_update_ts = timestamp
             return
 
-        delta = int((timestamp - self._last_update_ts).total_seconds())
+        delta = (timestamp - self._last_update_ts).total_seconds()
         if delta < 0:
-            delta = 0
+            delta = 0.0
 
         # Accumulate using previous flags (what was true during the elapsed interval)
-        if self._prev_session_active:
+        # Do NOT count gap time toward session duration
+        if self._prev_session_active and not self._prev_gap_active:
             self._current_session_duration_secs += delta
             if self._prev_hot_water_active:
                 self._current_hot_water_duration_secs += delta
@@ -141,8 +142,8 @@ class WaterSessionTracker:
             self._gapped_sessions_count = 0
             self._session_end_candidate_time = None
             # Reset accumulators
-            self._current_session_duration_secs = 0
-            self._current_hot_water_duration_secs = 0
+            self._current_session_duration_secs = 0.0
+            self._current_hot_water_duration_secs = 0.0
 
         # If session active and flow is zero, we may be in a gap
         if self._session_active and self.flow_rate == 0:
@@ -154,9 +155,9 @@ class WaterSessionTracker:
                     volume = max(0.0, self.volume_total - self._session_start_volume)
                     self._intermediate_exists = True
                     self._intermediate_start = self._current_session_start
-                    self._intermediate_duration = elapsed
+                    self._intermediate_duration = int(round(elapsed))
                     self._intermediate_volume = volume
-                    self._intermediate_hot_water_duration = self._current_hot_water_duration_secs
+                    self._intermediate_hot_water_duration = int(round(self._current_hot_water_duration_secs))
                 # Mark potential end start
                 self._session_end_candidate_time = timestamp
             else:
@@ -180,9 +181,10 @@ class WaterSessionTracker:
                 # finalize session
                 start = self._current_session_start or timestamp
                 end = timestamp
-                duration = int((end - start).total_seconds())
+                # Use accumulated active time (excluding gaps) for duration
+                duration = int(round(self._current_session_duration_secs))
                 volume = max(0.0, self.volume_total - self._session_start_volume)
-                hot_dur = self._current_hot_water_duration_secs
+                hot_dur = int(round(self._current_hot_water_duration_secs))
                 avg_flow = (volume / duration * 60.0) if duration > 0 else 0.0
 
                 session = WaterSession(
@@ -212,17 +214,19 @@ class WaterSessionTracker:
                 self._intermediate_volume = 0.0
                 self._intermediate_hot_water_duration = 0
                 self._session_end_candidate_time = None
-                # Keep accumulators as-is; they will be reset on next session start
-                self._current_session_duration_secs = 0
-                self._current_hot_water_duration_secs = 0
+                # Reset accumulators; next session start will also reset these
+                self._current_session_duration_secs = 0.0
+                self._current_hot_water_duration_secs = 0.0
 
         # Build derived metrics
         current_session_volume = max(0.0, self.volume_total - self._session_start_volume) if self._session_active else 0.0
-        current_session_duration = self._current_session_duration_secs if self._session_active else 0
-        current_session_avg_flow = (current_session_volume / current_session_duration * 60.0) if current_session_duration > 0 else 0.0
+        current_session_duration = int(round(self._current_session_duration_secs)) if self._session_active else 0
+        # Use float seconds for average calculation, fallback to 0 to avoid div by zero
+        dur_float = self._current_session_duration_secs if self._session_active else 0.0
+        current_session_avg_flow = (current_session_volume / dur_float * 60.0) if dur_float > 0 else 0.0
         current_session_hot_pct = (
-            round((self._current_hot_water_duration_secs / current_session_duration) * 100, 1)
-            if current_session_duration > 0 else 0.0
+            round((self._current_hot_water_duration_secs / dur_float) * 100, 1)
+            if dur_float > 0 else 0.0
         )
 
         intermediate_avg_flow = (

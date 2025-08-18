@@ -31,6 +31,13 @@ A Home Assistant custom integration for water usage monitoring that provides ses
 - Synthetic flow testing support
   - Optional integration-owned number to inject synthetic GPM for testing (no need to waste actual water).
 
+## DISCLAIMER ##
+A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g. leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater), or water infiltration from outside, a water flow sensor (and this integration) will not detect that. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor.
+
+Also, having a controllable valve that enables you or an automation to remotely shut off water to the house in the event of a leak detection (from either this integration or a leak/moisture sensor) could pay for itself many times over if you ever have a leak detected but are not at home to turn the water off manually.
+
+**Finally, your use of this integration means you agree that the author(s) of this integration bear no responsibility for leaks that are not detected or notified, due to any cause. It is important that you do your own testing, particularly ensuring that the parameters you set make sense for your situation**.
+
 ## Installation
 
 Manual installation

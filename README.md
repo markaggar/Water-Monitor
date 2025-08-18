@@ -1,7 +1,7 @@
 # Water Monitor
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
-[![Open your Home Assistant instance and start setting up the integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=water-monitor)
+[![Open your Home Assistant instance and start setting up the integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=water_monitor)
 
 > You must install the integration first (via HACS or manual copy) and restart Home Assistant before the “Add integration” button will work.
 

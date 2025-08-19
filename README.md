@@ -1,9 +1,9 @@
+![Version](https://img.shields.io/github/v/release/markaggar/Water-Monitor?style=for-the-badge)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 # Water Monitor
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
-[![Open your Home Assistant instance and start setting up the integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=water_monitor)
-
-> You must install the integration first (via HACS or manual copy) and restart Home Assistant before the “Add integration” button will work.
+> You must install the integration first (via HACS or manual copy) and restart Home Assistant before you can install the integration from the Settings/Devices and Services 
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection. Only a Flow sensor is required; a Volume sensor is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
@@ -43,19 +43,29 @@ Also, having a controllable valve that enables you or an automation to remotely 
 
 **Finally, your use of this integration means you agree that the author(s) of this integration bear no responsibility for leaks that are not detected or notified, due to any cause. It is important that you do your own testing, particularly ensuring that the parameters you set make sense for your situation**.
 
+## Devices
+Here is a list of devices that the community has tested with the integration (submit an issue to add your experience with a device)
+
+| Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Sensor Latency | Link |
+|--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------|------|
+| Droplet | Hydrific Water | Y | Y | N | N | Y | <3s | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
+| Flowsmart All-in-one | Yolink | N | N| Y | Y | N | minutes | NA |
+
 ## Installation
 
-Manual installation
-1) Copy the custom_components/water_monitor/ directory into your Home Assistant config/custom_components/ folder
+### HACS
+1) Search for 'Water Monitor' in the HACS sidebar tool or click [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
+2) Download the integration
+3) Restart Home Assistant
+4) Go to Settings → Devices & Services → Add Integration
+5) Search for “Water Monitor” and complete the setup
+  
+### Manual installation
+1) Download the code as a zip
+2) Copy the downloaded code from custom_components/water_monitor/ into your Home Assistant config/custom_components/ folder
 2) Restart Home Assistant
 3) Go to Settings → Devices & Services → Add Integration
 4) Search for “Water Monitor” and complete the setup
-
-HACS
-- Add this repository in HACS as a Custom repository under Integrations (see repo URL).
-- Install “Water Monitor,” restart Home Assistant, and add the integration.
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
 
 ## Configuration
 
@@ -378,20 +388,6 @@ logger:
 
 Issues and PRs are welcome. Please open an issue to discuss larger changes.
 
-
 ## License
 
 MIT License. See LICENSE.
-
-## Changelog
-
-### 0.3.0
-
-- New: Synthetic flow (gpm) test control as a Number entity
-  - Options to include synthetic flow in detectors and/or the engine’s live calculations
-  - Last/Current session sensors can include synthetic gallons when enabled, useful for simulation
-- Engine behavior: Synthetic gallons are excluded from stored sessions and daily analysis (analyze_yesterday)
-  - Daily totals and anomaly thresholds are computed without synthetic, so testing doesn’t skew analytics
-  - Sessions that are purely synthetic are not recorded by the engine
-- Stability: Improved session finalization logic and attributes for better visibility
-- Session model: Removed the separate continuity window; a single Gap Tolerance governs within-session gaps and finalization. Session duration and averages now exclude gap time.

@@ -25,6 +25,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -978,8 +979,16 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             for ts, v, d in self._history:
                 if lo <= v <= hi:
                     similar_count += 1
+                    # Derive a localized human-friendly time string for notifications
+                    try:
+                        local_dt = dt_util.as_local(ts)
+                        # 12-hour clock, remove leading zero for hours (cross-platform safe)
+                        local_time = local_dt.strftime("%I:%M%p").lstrip("0").lower()  # e.g., "3:00pm"
+                    except Exception:
+                        local_time = None
                     contributing.append({
                         "ts": ts.isoformat(),
+                        "local_time": local_time,
                         "volume": v,
                         "duration_s": d,
                     })

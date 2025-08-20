@@ -33,6 +33,16 @@ CONF_INCLUDE_SYNTHETIC_IN_DETECTORS = "include_synthetic_in_detectors"
 # Daily analysis may optionally include synthetic in totals.
 CONF_INCLUDE_SYNTHETIC_IN_DAILY = "include_synthetic_in_daily"
 
+# Optional water shutoff valve entity and auto-shutoff behavior
+CONF_WATER_SHUTOFF_ENTITY = "water_shutoff_entity"  # valve | switch | input_boolean
+# UI-only helper toggle shown under the selector when pre-filled
+CONF_CLEAR_WATER_SHUTOFF = "clear_water_shutoff_entity"
+
+# Per-detector automation: turn off the shutoff valve when this detector trips
+CONF_LOW_FLOW_AUTO_SHUTOFF = "low_flow_auto_shutoff_on_trigger"
+CONF_TANK_LEAK_AUTO_SHUTOFF = "tank_refill_auto_shutoff_on_trigger"
+CONF_INTEL_AUTO_SHUTOFF = "intelligent_auto_shutoff_on_trigger"
+
 # Update cadence for periodic evaluators
 UPDATE_INTERVAL = 1  # seconds
 
@@ -83,6 +93,11 @@ DEFAULTS = {
     CONF_SYNTHETIC_ENABLE: False,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,
     CONF_INCLUDE_SYNTHETIC_IN_DAILY: False,
+    # Shutoff valve defaults
+    CONF_WATER_SHUTOFF_ENTITY: "",
+    CONF_LOW_FLOW_AUTO_SHUTOFF: False,
+    CONF_TANK_LEAK_AUTO_SHUTOFF: False,
+    CONF_INTEL_AUTO_SHUTOFF: False,
     # Volume integration
     CONF_CALC_VOLUME_FROM_FLOW: False,  # non-breaking default; can be enabled in Options
     CONF_INTEGRATION_METHOD: INTEGRATION_METHOD_TRAPEZOIDAL,

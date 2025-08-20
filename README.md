@@ -3,7 +3,7 @@
 # Water Monitor
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
-> You must download/copy the integration first (via HACS or manual copy) and restart Home Assistant before you can install the integration from the Settings/Devices and Services 
+> You must download/copy the integration first (via HACS or manual copy) and restart Home Assistant before you can install the integration from the Devices and Services page under Settings.
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection. Only a Flow sensor is required; a Volume sensor is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
@@ -26,6 +26,10 @@ A Home Assistant custom integration for water usage monitoring that provides ses
   - Detects a continuous low-flow “dribble” with seed/persistence timers
 - Optional tank refill leak detector
   - Detects repeated, similar-sized refills clustered in time (typical symptom of a leaky toilet flapper)
+- Shutoff valve support
+  - Optionally link a shutoff valve entity (switch, input_boolean, or valve)
+  - Per-detector auto-shutoff toggles: auto-shutoff can be enabled for each leak detector
+  - Leak sensors will not clear while the valve is off, ensuring you don't miss a leak event
 - Upstream sensors health (binary sensor)
   - Monitors availability/validity of the configured upstream sensors (flow, volume, and optional hot-water)
 - Reconfigurable via Options
@@ -34,7 +38,23 @@ A Home Assistant custom integration for water usage monitoring that provides ses
 - Multi-instance safe
   - Add multiple instances with different sensors and thresholds
 - Synthetic flow testing support
-  - Optional integration-owned number to inject synthetic GPM for testing (no need to waste actual water).
+  - Optional integration-owned number to inject synthetic GPM for testing (no need to waste actual water)
+
+## Devices
+Here is a list of devices that the community has tested with the integration (submit an issue to add your experience with a device)
+
+| Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Flow/Volume Sensor Latency | Plumbing Required | Link |
+|--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------------------|-------------------|------|
+| Droplet | Hydrific Water | Y (Flow) | Y | N | N | Y (MQTT) | <3s | N | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
+| Flowsmart All-in-one | Yolink | Y (Valve) | N | Y | Y | N | minutes | Y | [link](https://shop.yosmart.com/products/ys5008-20) |
+| Titan Water Valve Actuator | Zooz | Y (Valve) | N | N | Y| Y (Zwave) | NA | N | [link](https://amzn.to/4mPD3x8) |
+
+## DISCLAIMER ##
+A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g. leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater, washing machine, toilet o-ring), water infiltration from outside, or a blocked sewer pipe (speaking from experience), a water flow sensor (and this integration) will not detect those events. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor (again, experienced all of those!).
+
+Also, having a controllable valve that enables you or this integration to remotely shut off water to the house in the event of a leak detection (from either this integration or a leak/moisture sensor) could pay for itself many times over if you ever have a leak detected but are not at home to turn the water off manually.
+
+**Finally, your use of this integration means you agree that the author(s) of this integration bear no responsibility for leaks that are not detected or notified, due to any cause. It is important that you do your own testing, particularly ensuring that the parameters you set make sense for your situation, and that any shutoff valves work as expected**.
 
 ## Devices
 Here is a list of devices that the community has tested with the integration (submit an issue to add your experience with a device)
@@ -71,7 +91,7 @@ Also, having a controllable valve that enables you or an automation to remotely 
 
 <img width="364" height="920" alt="image" src="https://github.com/user-attachments/assets/0c773851-d4fa-4782-8683-b673e0701524" />
 
-Setup page (step 1)
+### Setup page
 - Sensor Name Prefix
 - Flow Rate Sensor (required)
 - Volume Sensor (optional; if provided, Water Monitor uses it as the source of truth. If omitted, Water Monitor computes volume from the flow sensor.)
@@ -84,10 +104,10 @@ Setup page (step 1)
 - Create Low-flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
 - Enable Intelligent Leak Detection (experimental) (checkbox)
+- Shutoff Valve Entity (optional)
 
+### Low-flow leak 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
-
-Low-flow leak (step 2)
 - Max low-flow threshold (e.g., 0.5 GPM)
 - Seed low-flow duration (seconds)
 - Leak persistence required to trigger (seconds)
@@ -97,10 +117,10 @@ Low-flow leak (step 2)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
+- Auto shutoff on trigger (per-detector)
 
+### Tank refill leak
 If “Create tank refill leak sensor” is checked, you’ll be presented with a third page:
-
-Tank refill leak (step 2)
 - Minimum refill volume (ignore refills smaller than this)
 - Maximum refill volume (ignore refills larger than this; 0 disables the cap)
 - Similarity tolerance (%) — how close in volume refills must be to count as “similar”
@@ -110,34 +130,38 @@ Tank refill leak (step 2)
 - Cooldown after clear (seconds) — optional suppression period before re-triggering
 - Minimum refill duration (seconds; 0 disables)
 - Maximum refill duration (seconds; 0 disables)
+- Auto shutoff on trigger (per-detector)
 
+### Intelligent Leak Detection (experimental)
 If “Enable Intelligent Leak Detection” is checked, you’ll be presented with another page:
-
-Intelligent Leak Detection (experimental)
 - Occupancy mode input_select (optional)
 - Away states (comma-separated, optional)
 - Vacation states (comma-separated, optional)
 - Enable learning mode (toggle)
+- Auto shutoff on trigger (per-detector)
 
 Notes
-
 - CSV fields accept multiple labels separated by commas, e.g. "On Vacation, Returning from Vacation".
 - Learning mode is intended for future automation-assisted tuning; you can toggle it via Options or automations.
 
-Reconfiguration
+### Synthetic Flow Options
+If Enable Synthetic Flow (testing) is enabled, you'll be presented with another page:
+- Include synthetic flow in detectors - allow detectors to see synthetic flow
+- Include synthetic flow in daily analysis - allow intelligent leak analysis to see synthetic flow
+
+## Reconfiguration
 
 - Open Settings → Devices & Services → Water Monitor → Configure.
-- The low-flow leak sensor is optional and can be enabled/disabled at any time:
-  - Enabling creates the binary sensor.
-  - Disabling removes the binary sensor on reload.
+- The leak sensors are optional and can be enabled/disabled at any time from the main setup page.
+- The shutoff valve and auto-shutoff toggles can be changed at any time via Options
 
-Units
+## Units
 
 - If a Volume sensor is configured, its unit determines display (gallons/liters) and ensures alignment with the Energy dashboard.
 - If no Volume sensor is configured, Water Monitor computes volume by integrating the Flow sensor (default method: Trapezoidal; alternative: Left to match external counters). Units are inferred from the Flow sensor (e.g., GPM → gal, L/min → L).
 - Flow sensor units are reflected in the low-flow leak sensor attributes and used for last-session average flow when possible.
 - Average flow sensor displays as <volume_unit>/min derived from the volume unit.
-
+  
 ## Sensors created
 
 - Last session volume (sensor)
@@ -276,7 +300,20 @@ Notes
 - Clearing: when no similar refills occur for the configured idle period; optional cooldown prevents immediate re-triggering.
 - Guards: refills below Minimum/shorter than Min duration or above Maximum/longer than Max duration (if set) are ignored to avoid false positives from noise or large draws unrelated to tank refills.
 
-Tuning tips
+### Shutoff Valve and Auto-Shutoff Details
+
+- The shutoff valve can be any Home Assistant entity that supports on/off (switch, input_boolean, or valve)
+- Each leak detector (low-flow, tank refill) can have auto-shutoff enabled or disabled independently
+- When a leak is detected and auto-shutoff is enabled, the valve is turned off automatically
+- While the valve is off, leak sensors will not clear, ensuring you don't miss a leak event
+- Synthetic flow is automatically zeroed when the valve is off
+- The Upstream Health sensor will show the valve as unavailable if it cannot be reached
+- Leak sensor attributes:
+  - **auto_shutoff_on_trigger**: True if auto-shutoff is enabled for this detector
+  - **auto_shutoff_effective**: True if auto-shutoff is enabled and a valid valve is configured and available
+  - **valve_off**: True if the valve is currently off
+
+### Tuning tips
 
 - Minimum refill volume: set just below your typical toilet refill to ignore tiny noise.
 - Maximum refill volume: set just above a toilet refill to ignore showers/sprinklers; set 0 to disable the cap.

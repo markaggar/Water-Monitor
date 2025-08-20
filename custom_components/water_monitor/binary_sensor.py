@@ -59,6 +59,11 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    # Shutoff valve and auto-shutoff flags
+    CONF_WATER_SHUTOFF_ENTITY,
+    CONF_LOW_FLOW_AUTO_SHUTOFF,
+    CONF_TANK_LEAK_AUTO_SHUTOFF,
+    CONF_INTEL_AUTO_SHUTOFF,
 )
 from .const import engine_signal, tracker_signal
 from .engine import WaterMonitorEngine
@@ -75,6 +80,7 @@ async def async_setup_entry(
     flow_sensor = opts.get(CONF_FLOW_SENSOR)
     volume_sensor = opts.get(CONF_VOLUME_SENSOR)
     hot_water_sensor = opts.get(CONF_HOT_WATER_SENSOR)
+    valve_sensor = opts.get(CONF_WATER_SHUTOFF_ENTITY)
 
     entities: list[BinarySensorEntity] = []
 
@@ -86,6 +92,7 @@ async def async_setup_entry(
             flow_entity_id=flow_sensor,
             volume_entity_id=volume_sensor,
             hot_water_entity_id=hot_water_sensor,
+            valve_entity_id=valve_sensor,
         )
     )
 
@@ -284,6 +291,31 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         except Exception:
             return None
 
+    def _get_valve_context(self) -> tuple[Optional[str], bool, bool, bool]:
+        """Return (valve_entity_id, valve_off, auto_shutoff_enabled, effective)."""
+        ex = {**self._entry.data, **self._entry.options}
+        valve = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        auto = bool(ex.get(CONF_INTEL_AUTO_SHUTOFF, False))
+        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
+        effective = bool(valve and auto)
+        return (valve or None, valve_off, auto, effective)
+
+    def _async_call_valve_off(self, valve_entity_id: str) -> None:
+        try:
+            domain = valve_entity_id.split(".")[0]
+            if domain == "valve":
+                srv_domain, service = "valve", "close_valve"
+            elif domain in ("switch", "input_boolean"):
+                srv_domain, service = domain, "turn_off"
+            else:
+                return
+            self.hass.async_create_task(
+                self.hass.services.async_call(srv_domain, service, {"entity_id": valve_entity_id}, blocking=False)
+            )
+        except Exception:
+            pass
+
     def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
         local = now.astimezone()
         return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
@@ -319,6 +351,7 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
     @callback
     def _on_tracker_update(self, state: dict) -> None:
         try:
+            valve_entity, valve_off, auto, effective = self._get_valve_context()
             now = datetime.now(timezone.utc)
             self._last_eval_ts = now
             # Pull live session metrics
@@ -403,6 +436,9 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
 
             is_on = risk >= 1.0
             prev = self._attr_is_on
+            # Suppress clearing while valve is off
+            if prev and not is_on and valve_off:
+                is_on = True
             self._attr_is_on = is_on
             self._attr_extra_state_attributes = {
                 "baseline_ready": baseline_ready,
@@ -422,7 +458,15 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 "flow_now": flow_now,
                 "risk": round(risk, 2),
                 "reasons": reasons,
+                # Auto-shutoff attributes
+                "auto_shutoff_on_trigger": auto,
+                "auto_shutoff_effective": effective,
+                "auto_shutoff_valve_entity": valve_entity,
+                "valve_off": valve_off,
             }
+            # Auto-shutoff action when transitioning OFF->ON
+            if not prev and self._attr_is_on and effective and valve_entity:
+                self._async_call_valve_off(valve_entity)
             if prev != self._attr_is_on:
                 self.async_write_ha_state()
             else:
@@ -444,6 +488,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         flow_entity_id: Optional[str],
         volume_entity_id: Optional[str],
         hot_water_entity_id: Optional[str],
+        valve_entity_id: Optional[str] = None,
     ) -> None:
         self._entry = entry
         self._attr_name = name
@@ -455,6 +500,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self._flow_entity_id = flow_entity_id
         self._volume_entity_id = volume_entity_id
         self._hot_water_entity_id = hot_water_entity_id or None
+        self._valve_entity_id = valve_entity_id or None
 
         self._unsub_state = None
         self._last_ok = {}
@@ -480,7 +526,12 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self.async_write_ha_state()
         tracked = [
             e
-            for e in [self._flow_entity_id, self._volume_entity_id, self._hot_water_entity_id]
+            for e in [
+                self._flow_entity_id,
+                self._volume_entity_id,
+                self._hot_water_entity_id,
+                self._valve_entity_id,
+            ]
             if e
         ]
         if tracked:
@@ -528,6 +579,15 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
             return False
         return str(st.state).lower() in ("on", "off", "true", "false", "0", "1")
 
+    def _is_valve_ok(self) -> Optional[bool]:
+        if not self._valve_entity_id:
+            return None
+        st = self.hass.states.get(self._valve_entity_id)
+        if not st or st.state in (None, "unknown", "unavailable"):
+            return False
+        # Any valid on/off-ish state is considered OK; we don't judge open/closed here
+        return str(st.state).lower() in ("on", "off", "open", "closed", "true", "false", "0", "1")
+
     async def _evaluate(self, now: datetime) -> None:
         unavailable: list[str] = []
         unknown: list[str] = []
@@ -556,7 +616,11 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         hot_ok = self._is_hot_ok()
         if self._hot_water_entity_id is not None:
             upd(self._hot_water_entity_id, hot_ok)
+        valve_ok = self._is_valve_ok()
+        if self._valve_entity_id is not None:
+            upd(self._valve_entity_id, valve_ok)
 
+        # Overall status remains based on core upstreams; valve presence does not gate availability
         status = (
             (self._flow_entity_id is None or self._is_flow_ok())
             and (self._volume_entity_id is None or self._is_volume_ok())
@@ -781,22 +845,40 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
                 self.hass, self._async_tick, timedelta(seconds=self._tick_interval_s)
             )
 
-        # Clear conditions
+        # Clear conditions (suppressed when valve is off)
+        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
         cleared = False
         if self._attr_is_on:
-            if self._clear_idle_s > 0 and self._idle_zero_s >= self._clear_idle_s:
-                self._attr_is_on = False
-                cleared = True
-            elif self._clear_on_high_s and self._high_flow_s >= self._clear_on_high_s:
-                self._attr_is_on = False
-                cleared = True
+            if not valve_off:
+                if self._clear_idle_s > 0 and self._idle_zero_s >= self._clear_idle_s:
+                    self._attr_is_on = False
+                    cleared = True
+                elif self._clear_on_high_s and self._high_flow_s >= self._clear_on_high_s:
+                    self._attr_is_on = False
+                    cleared = True
             if cleared and self._cooldown_s > 0:
                 self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
 
         # Trigger condition
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
+        prev_on = self._attr_is_on
         if not self._attr_is_on and can_trigger and self._seeded and self._count_progress >= self._min_s:
             self._attr_is_on = True
+        # If turning on and auto-shutoff is enabled, request valve off
+        ex = {**self._entry.data, **self._entry.options}
+        valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        auto = bool(ex.get(CONF_LOW_FLOW_AUTO_SHUTOFF, False))
+        effective = bool(valve_ent and auto)
+        if not prev_on and self._attr_is_on and effective:
+            try:
+                dom = valve_ent.split(".")[0]
+                if dom == "valve":
+                    await self.hass.services.async_call("valve", "close_valve", {"entity_id": valve_ent}, blocking=False)
+                elif dom in ("switch", "input_boolean"):
+                    await self.hass.services.async_call(dom, "turn_off", {"entity_id": valve_ent}, blocking=False)
+            except Exception:
+                pass
 
         # Phase
         if self._attr_is_on:
@@ -823,8 +905,12 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "smoothing_s": self._smoothing_s,
             "baseline_margin_pct": self._baseline_margin_pct,
+            # Auto-shutoff attributes
+            "auto_shutoff_on_trigger": auto,
+            "auto_shutoff_effective": effective,
+            "auto_shutoff_valve_entity": (valve_ent or None),
+            "valve_off": valve_off,
         }
-
         self._last_update = now
         self.async_write_ha_state()
 
@@ -894,6 +980,35 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
     async def async_added_to_hass(self) -> None:
         self._attr_is_on = False
         self._attr_available = True
+        # Initialize attributes so UI shows expected fields before first event
+        try:
+            ex = {**self._entry.data, **self._entry.options}
+            valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+            auto = bool(ex.get(CONF_TANK_LEAK_AUTO_SHUTOFF, False))
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
+            self._attr_extra_state_attributes = {
+                "events_in_window": 0,
+                "similar_count": 0,
+                "min_refill_volume": self._min_volume,
+                "max_refill_volume": self._max_volume,
+                "tolerance_pct": self._tol_pct,
+                "repeat_count": self._repeat,
+                "window_s": self._window_s,
+                "clear_idle_s": self._clear_idle_s,
+                "cooldown_s": self._cooldown_s,
+                "last_event": None,
+                "min_refill_duration_s": self._min_duration_s,
+                "max_refill_duration_s": self._max_duration_s,
+                "contributing_events": [],
+                # Auto-shutoff attributes
+                "auto_shutoff_on_trigger": auto,
+                "auto_shutoff_effective": bool(valve_ent and auto),
+                "auto_shutoff_valve_entity": (valve_ent or None),
+                "valve_off": valve_off,
+            }
+        except Exception:
+            pass
         self.async_write_ha_state()
         await self._resolve_and_subscribe()
 
@@ -994,16 +1109,23 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
                     })
 
         prev_on = self._attr_is_on
+        # Read valve context
+        ex = {**self._entry.data, **self._entry.options}
+        valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        auto = bool(ex.get(CONF_TANK_LEAK_AUTO_SHUTOFF, False))
+        effective = bool(valve_ent and auto)
+        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
         if can_trigger and similar_count >= self._repeat:
             self._attr_is_on = True
         else:
             # Auto-clear after idle period since last event
             if self._attr_is_on and self._last_event_ts and (now - self._last_event_ts).total_seconds() >= self._clear_idle_s:
-                self._attr_is_on = False
-                if self._cooldown_s > 0:
-                    self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
-
+                if not valve_off:
+                    self._attr_is_on = False
+                    if self._cooldown_s > 0:
+                        self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
         self._attr_extra_state_attributes = {
             "events_in_window": len(self._history),
             "similar_count": similar_count,
@@ -1018,9 +1140,23 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             "min_refill_duration_s": self._min_duration_s,
             "max_refill_duration_s": self._max_duration_s,
             "contributing_events": contributing,
+            # Auto-shutoff attributes
+            "auto_shutoff_on_trigger": auto,
+            "auto_shutoff_effective": effective,
+            "auto_shutoff_valve_entity": (valve_ent or None),
+            "valve_off": valve_off,
         }
 
         # Always write so attributes stay fresh
+        if not prev_on and self._attr_is_on and effective and valve_ent:
+            try:
+                dom = valve_ent.split(".")[0]
+                if dom == "valve":
+                    await self.hass.services.async_call("valve", "close_valve", {"entity_id": valve_ent}, blocking=False)
+                elif dom in ("switch", "input_boolean"):
+                    await self.hass.services.async_call(dom, "turn_off", {"entity_id": valve_ent}, blocking=False)
+            except Exception:
+                pass
         if prev_on != self._attr_is_on:
             self.async_write_ha_state()
         else:

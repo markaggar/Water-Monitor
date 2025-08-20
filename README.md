@@ -31,7 +31,7 @@ A Home Assistant custom integration for water usage monitoring that provides ses
   - Per-detector auto-shutoff toggles: auto-shutoff can be enabled for each leak detector
   - Leak sensors will not clear while the valve is off, ensuring you don't miss a leak event
 - Upstream sensors health (binary sensor)
-  - Monitors availability/validity of the configured upstream sensors (flow, volume, and optional hot-water)
+  - Monitors availability/validity of the configured upstream sensors (flow, volume, shut-off valve and hot-water)
 - Reconfigurable via Options
   - Adjust sensors and thresholds at any time in the integration’s Configure dialog
   - Optional sensor name prefix for easy disambiguation in the UI

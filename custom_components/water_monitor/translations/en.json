@@ -10,6 +10,8 @@
           "flow_sensor": "Flow sensor",
           "volume_sensor": "Volume sensor (optional)",
           "hot_water_sensor": "Hot water binary sensor (optional)",
+          "water_shutoff_entity": "Water shutoff valve (optional)",
+          "clear_water_shutoff_entity": "Clear water shutoff valve",
           "clear_volume_sensor": "Clear volume sensor",
           "clear_hot_water_sensor": "Clear hot water sensor",
           "integration_method": "Integration method (when no volume sensor specified)",
@@ -57,7 +59,8 @@
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
           "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
           "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
-          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)"
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)",
+          "tank_refill_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         },
         "data_description": {
           "tank_refill_min_volume": "Ignore refills smaller than this.",
@@ -83,7 +86,8 @@
           "low_flow_smoothing_window_s": "Smoothing window (seconds)",
           "low_flow_cooldown_s": "Cooldown after clear (seconds)",
           "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
-          "low_flow_baseline_margin_pct": "Baseline margin (%)"
+          "low_flow_baseline_margin_pct": "Baseline margin (%)",
+          "low_flow_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         },
         "data_description": {
           "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
@@ -104,6 +108,8 @@
           "flow_sensor": "Flow sensor",
           "volume_sensor": "Volume sensor (optional)",
           "hot_water_sensor": "Hot water binary sensor (optional)",
+          "water_shutoff_entity": "Water shutoff valve (optional)",
+          "clear_water_shutoff_entity": "Clear water shutoff valve",
           "clear_volume_sensor": "Clear volume sensor",
           "clear_hot_water_sensor": "Clear hot water sensor",
           "integration_method": "Integration method (when no volume sensor specified)",
@@ -136,7 +142,8 @@
           "occupancy_mode_entity": "Occupancy mode input_select (optional)",
           "occupancy_state_away": "Away states (comma-separated, optional)",
           "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
-          "intelligent_learning_enable": "Enable learning mode"
+          "intelligent_learning_enable": "Enable learning mode",
+          "intelligent_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         }
       },
       "tank_leak": {
@@ -151,7 +158,8 @@
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
           "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
           "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
-          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)"
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)",
+          "tank_refill_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         },
         "data_description": {
           "tank_refill_min_volume": "Ignore refills smaller than this.",
@@ -177,15 +185,15 @@
           "low_flow_smoothing_window_s": "Smoothing window (seconds)",
           "low_flow_cooldown_s": "Cooldown after clear (seconds)",
           "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
-          "low_flow_baseline_margin_pct": "Baseline margin (%)"
+          "low_flow_baseline_margin_pct": "Baseline margin (%)",
+          "low_flow_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         },
         "data_description": {
           "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
       }
     }
-  }
-  ,
+  },
   "entity": {
     "number": {
       "expected_baseline": {

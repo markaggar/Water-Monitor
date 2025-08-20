@@ -4,8 +4,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, CONF_SENSOR_PREFIX
+from .const import DOMAIN, CONF_SENSOR_PREFIX, CONF_WATER_SHUTOFF_ENTITY, tracker_signal
+import logging
+_LOGGER = logging.getLogger(__name__)
 from .engine import WaterMonitorEngine  # new engine
 
 # Platforms provided by this integration
@@ -103,8 +107,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create and start engine
     domain_data = hass.data.setdefault(DOMAIN, {})
     engine = WaterMonitorEngine(hass, entry.entry_id, ex)
-    domain_data[entry.entry_id] = {"engine": engine, "synthetic_flow_gpm": 0.0}
+    domain_data[entry.entry_id] = {
+        "engine": engine,
+        "synthetic_flow_gpm": 0.0,
+        "valve_entity_id": ex.get(CONF_WATER_SHUTOFF_ENTITY) or "",
+        "valve_off": False,
+        "_unsub_valve": None,
+    }
     await engine.start()
+
+    # Track optional water shutoff valve state and react to changes
+    async def _eval_valve_state(entity_id: str | None) -> None:
+        try:
+            data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            if not isinstance(data, dict):
+                _LOGGER.warning("[valve] No domain data for entry %s", entry.entry_id)
+                return
+            valve = data.get("valve_entity_id")
+            if not valve:
+                data["valve_off"] = False
+                _LOGGER.info("[valve] No valve entity configured for entry %s", entry.entry_id)
+                return
+            st = hass.states.get(valve)
+            off = False
+            if st and st.state not in (None, "unknown", "unavailable"):
+                dom = valve.split(".")[0]
+                sval = str(st.state).lower()
+                _LOGGER.info("[valve] Entity %s state: %s (domain: %s)", valve, sval, dom)
+                if dom == "valve":
+                    off = sval == "closed"
+                elif dom in ("switch", "input_boolean"):
+                    off = sval == "off"
+            else:
+                _LOGGER.info("[valve] Entity %s is unavailable or unknown", valve)
+            data["valve_off"] = bool(off)
+            _LOGGER.info("[valve] Set valve_off=%s for entry %s", bool(off), entry.entry_id)
+            # Always fire tracker signal so all leak sensors re-evaluate immediately
+            try:
+                hass.helpers.dispatcher.async_dispatcher_send(tracker_signal(entry.entry_id), {})
+            except Exception as e:
+                _LOGGER.error("[valve] Error firing tracker signal: %s", e)
+            if off:
+                # Force synthetic flow number to 0 if present (by unique_id and by explicit entity_id)
+                try:
+                    ent_reg = er.async_get(hass)
+                    target_uid = f"{entry.entry_id}_synthetic_flow_gpm"
+                    ent = next((e for e in ent_reg.entities.values() if e.platform == DOMAIN and e.unique_id == target_uid), None)
+                    if ent is not None:
+                        await hass.services.async_call(
+                            "number", "set_value", {"entity_id": ent.entity_id, "value": 0}, blocking=False
+                        )
+                except Exception:
+                    pass
+                # Always set the explicit entity_id for synth flow if present, using the integration's prefix
+                try:
+                    prefix = (entry.options.get("sensor_prefix") or entry.data.get("sensor_prefix") or entry.title or "water_monitor").lower().replace(" ", "_")
+                    entity_id = f"number.{prefix}_synth_synthetic_flow_gpm"
+                    await hass.services.async_call(
+                        "number", "set_value", {"entity_id": entity_id, "value": 0}, blocking=False
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Subscribe to valve state changes if configured
+    dd = domain_data.get(entry.entry_id)
+    valve_ent = dd.get("valve_entity_id") if isinstance(dd, dict) else None
+    if valve_ent:
+        async def _on_valve_event(event):
+            await _eval_valve_state(valve_ent)
+        try:
+            dd["_unsub_valve"] = async_track_state_change_event(hass, [valve_ent], _on_valve_event)
+        except Exception:
+            dd["_unsub_valve"] = None
+        # Evaluate once at startup
+        await _eval_valve_state(valve_ent)
 
     # Register a one-time service to trigger daily analysis on demand
     # Useful for testing without waiting until the scheduled time.
@@ -170,6 +248,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = domain_data.pop(entry.entry_id, None)
     if data and data.get("engine"):
         await data["engine"].stop()
+    # Unsubscribe valve listener
+    try:
+        unsub = data.get("_unsub_valve") if isinstance(data, dict) else None
+        if unsub:
+            unsub()
+    except Exception:
+        pass
     # If this was the last engine, remove the on-demand service
     any_engines_left = any(
         isinstance(v, dict) and v.get("engine") is not None for v in domain_data.values()

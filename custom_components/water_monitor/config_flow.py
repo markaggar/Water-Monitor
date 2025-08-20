@@ -57,6 +57,12 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    # shutoff valve
+    CONF_WATER_SHUTOFF_ENTITY,
+    CONF_CLEAR_WATER_SHUTOFF,
+    CONF_LOW_FLOW_AUTO_SHUTOFF,
+    CONF_TANK_LEAK_AUTO_SHUTOFF,
+    CONF_INTEL_AUTO_SHUTOFF,
 )
 
 # New intelligent detection constants were introduced recently; fall back to string keys
@@ -150,6 +156,25 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         fields[vol.Optional(CONF_HOT_WATER_SENSOR, default=existing_hot)] = s_entity("binary_sensor")
         # Convenience: show clear toggle directly below the hot water selector when applicable
         fields[vol.Optional("clear_hot_water_sensor", default=False)] = s_bool()
+
+    # Optional water shutoff valve (valve | switch | input_boolean)
+    existing_valve = ex.get(CONF_WATER_SHUTOFF_ENTITY, None)
+    if existing_valve in (None, ""):
+        # Allow any of the supported domains
+        if HAS_SELECTORS:
+            fields[vol.Optional(CONF_WATER_SHUTOFF_ENTITY)] = ha_selector({
+                "entity": {"domain": ["valve", "switch", "input_boolean"]}
+            })
+        else:
+            fields[vol.Optional(CONF_WATER_SHUTOFF_ENTITY)] = str
+    else:
+        if HAS_SELECTORS:
+            fields[vol.Optional(CONF_WATER_SHUTOFF_ENTITY, default=existing_valve)] = ha_selector({
+                "entity": {"domain": ["valve", "switch", "input_boolean"]}
+            })
+        else:
+            fields[vol.Optional(CONF_WATER_SHUTOFF_ENTITY, default=existing_valve)] = str
+        fields[vol.Optional(CONF_CLEAR_WATER_SHUTOFF, default=False)] = s_bool()
 
     fields[vol.Required(CONF_MIN_SESSION_VOLUME, default=ex.get(CONF_MIN_SESSION_VOLUME, DEFAULTS[CONF_MIN_SESSION_VOLUME]))] = s_number(
         min_=0, step=0.01
@@ -258,6 +283,14 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         key = vol.Optional(CONF_LOW_FLOW_CLEAR_ON_HIGH_S, default=str(existing_clear))
     fields[key] = s_text()
 
+    # Auto-shutoff toggle (only meaningful when valve is configured)
+    valve_set = bool(ex.get(CONF_WATER_SHUTOFF_ENTITY))
+    if valve_set:
+        fields[vol.Required(
+            CONF_LOW_FLOW_AUTO_SHUTOFF,
+            default=ex.get(CONF_LOW_FLOW_AUTO_SHUTOFF, DEFAULTS.get(CONF_LOW_FLOW_AUTO_SHUTOFF, False))
+        )] = s_bool()
+
     return vol.Schema(fields)
 
 
@@ -309,6 +342,14 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         default=ex.get(CONF_TANK_LEAK_MAX_REFILL_DURATION_S, DEFAULTS[CONF_TANK_LEAK_MAX_REFILL_DURATION_S])
     )] = s_int(min_=0, step=1)
 
+    # Auto-shutoff toggle (only meaningful when valve is configured)
+    valve_set = bool(ex.get(CONF_WATER_SHUTOFF_ENTITY))
+    if valve_set:
+        fields[vol.Required(
+            CONF_TANK_LEAK_AUTO_SHUTOFF,
+            default=ex.get(CONF_TANK_LEAK_AUTO_SHUTOFF, DEFAULTS.get(CONF_TANK_LEAK_AUTO_SHUTOFF, False))
+        )] = s_bool()
+
     return vol.Schema(fields)
 
 
@@ -339,6 +380,14 @@ def _intelligent_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema
         CONF_INTEL_LEARNING_ENABLE,
     default=ex.get(CONF_INTEL_LEARNING_ENABLE, DEFAULTS.get(CONF_INTEL_LEARNING_ENABLE, True))
     )] = s_bool()
+
+    # Auto-shutoff toggle (only meaningful when valve is configured)
+    valve_set = bool(ex.get(CONF_WATER_SHUTOFF_ENTITY))
+    if valve_set:
+        fields[vol.Required(
+            CONF_INTEL_AUTO_SHUTOFF,
+            default=ex.get(CONF_INTEL_AUTO_SHUTOFF, DEFAULTS.get(CONF_INTEL_AUTO_SHUTOFF, False))
+        )] = s_bool()
 
     return vol.Schema(fields)
 
@@ -382,6 +431,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Remove helper toggles from payload prior to storing
             user_input.pop("clear_volume_sensor", None)
             user_input.pop("clear_hot_water_sensor", None)
+            if user_input.get(CONF_CLEAR_WATER_SHUTOFF):
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
+            user_input.pop(CONF_CLEAR_WATER_SHUTOFF, None)
+
+            # Normalize optional water shutoff: blank string when cleared/omitted
+            if CONF_WATER_SHUTOFF_ENTITY in user_input and not user_input[CONF_WATER_SHUTOFF_ENTITY]:
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
+            if CONF_WATER_SHUTOFF_ENTITY not in user_input:
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
 
             # If volume sensor omitted, prefer integration-from-flow
             if vol_missing or not user_input.get(CONF_VOLUME_SENSOR):
@@ -424,8 +482,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor",
                 data=self._data,
             )
+    # Pass merged data so schema can see the valve picked on the first page
 
-        return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(self._data))
 
     async def async_step_tank_leak(self, user_input: Optional[Dict[str, Any]] = None):
         if user_input is not None:
@@ -435,7 +493,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self._synthetic_enabled:
                 return await self.async_step_synthetic()
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
-
+        # Pass merged data so schema can see the valve picked on the first page
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(self._data))
 
     async def async_step_intelligent(self, user_input: Optional[Dict[str, Any]] = None):
@@ -452,7 +510,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         user_input.pop(k, None)
             self._data.update(user_input)
             return self.async_create_entry(title=self._data.get(CONF_SENSOR_PREFIX) or "Water Monitor", data=self._data)
-
+        # Pass merged data so schema can see the valve picked on the first page
         return self.async_show_form(step_id="intelligent", data_schema=_intelligent_schema(self._data))
 
     def _synthetic_schema(self, existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
@@ -526,6 +584,15 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             # Remove helper toggles from payload prior to storing
             user_input.pop("clear_volume_sensor", None)
             user_input.pop("clear_hot_water_sensor", None)
+            if user_input.get(CONF_CLEAR_WATER_SHUTOFF):
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
+            user_input.pop(CONF_CLEAR_WATER_SHUTOFF, None)
+
+            # Normalize optional water shutoff: blank when cleared/omitted
+            if CONF_WATER_SHUTOFF_ENTITY in user_input and not user_input[CONF_WATER_SHUTOFF_ENTITY]:
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
+            if CONF_WATER_SHUTOFF_ENTITY not in user_input:
+                user_input[CONF_WATER_SHUTOFF_ENTITY] = ""
 
             self._opts.update(user_input)
             self._low_flow_enabled = bool(user_input.get(CONF_LOW_FLOW_ENABLE, DEFAULTS[CONF_LOW_FLOW_ENABLE]))
@@ -553,6 +620,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_FLOW_SENSOR,
                 CONF_VOLUME_SENSOR,
                 CONF_HOT_WATER_SENSOR,
+                CONF_WATER_SHUTOFF_ENTITY,
                 CONF_MIN_SESSION_VOLUME,
                 CONF_MIN_SESSION_DURATION,
                 CONF_SESSION_GAP_TOLERANCE,
@@ -572,6 +640,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
             defaults[CONF_VOLUME_SENSOR] = None
         if isinstance(defaults.get(CONF_HOT_WATER_SENSOR), str) and defaults.get(CONF_HOT_WATER_SENSOR) == "":
             defaults[CONF_HOT_WATER_SENSOR] = None
+        if isinstance(defaults.get(CONF_WATER_SHUTOFF_ENTITY), str) and defaults.get(CONF_WATER_SHUTOFF_ENTITY) == "":
+            defaults[CONF_WATER_SHUTOFF_ENTITY] = None
         return self.async_show_form(step_id="init", data_schema=_main_schema(defaults))
 
     async def async_step_low_flow(self, user_input: Optional[Dict[str, Any]] = None):
@@ -588,8 +658,9 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_synthetic()
             return self._store()
 
+        # Merge in any values already chosen on the init step (self._opts)
         defaults = {
-            k: self._existing.get(k, DEFAULTS.get(k))
+            k: self._opts.get(k, self._existing.get(k, DEFAULTS.get(k)))
             for k in [
                 CONF_LOW_FLOW_MAX_FLOW,
                 CONF_LOW_FLOW_SEED_S,
@@ -600,6 +671,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_LOW_FLOW_BASELINE_MARGIN_PCT,
                 CONF_LOW_FLOW_COOLDOWN_S,
                 CONF_LOW_FLOW_CLEAR_ON_HIGH_S,
+                CONF_WATER_SHUTOFF_ENTITY,
+                CONF_LOW_FLOW_AUTO_SHUTOFF,
             ]
         }
         return self.async_show_form(step_id="low_flow", data_schema=_low_flow_schema(defaults))
@@ -613,8 +686,9 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_synthetic()
             return self._store()
 
+        # Merge in any values already chosen on the init/previous steps
         defaults = {
-            k: self._existing.get(k, DEFAULTS.get(k))
+            k: self._opts.get(k, self._existing.get(k, DEFAULTS.get(k)))
             for k in [
                 CONF_TANK_LEAK_MIN_REFILL_VOLUME,
                 CONF_TANK_LEAK_MAX_REFILL_VOLUME,
@@ -625,6 +699,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_TANK_LEAK_COOLDOWN_S,
                 CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
                 CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+                CONF_WATER_SHUTOFF_ENTITY,
+                CONF_TANK_LEAK_AUTO_SHUTOFF,
             ]
         }
         return self.async_show_form(step_id="tank_leak", data_schema=_tank_leak_schema(defaults))
@@ -645,13 +721,16 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_synthetic()
             return self._store()
 
+        # Merge in any values already chosen on the init/previous steps
         defaults = {
-            k: self._existing.get(k, DEFAULTS.get(k))
+            k: self._opts.get(k, self._existing.get(k, DEFAULTS.get(k)))
             for k in [
                 CONF_OCC_MODE_ENTITY,
                 CONF_OCC_STATE_AWAY,
                 CONF_OCC_STATE_VACATION,
                 CONF_INTEL_LEARNING_ENABLE,
+                CONF_WATER_SHUTOFF_ENTITY,
+                CONF_INTEL_AUTO_SHUTOFF,
             ]
         }
         return self.async_show_form(step_id="intelligent", data_schema=_intelligent_schema(defaults))

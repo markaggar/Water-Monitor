@@ -41,7 +41,7 @@ Here is a list of devices that the community has tested with the integration (su
 
 | Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Sensor Latency | Link |
 |--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------|------|
-| Droplet | Hydrific Water | Y | Y | N | N | Y | <3s | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
+| Droplet | Hydrific Water | Y | Y | N | N | Y (MQTT) | <3s | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
 | Flowsmart All-in-one | Yolink | N | N| Y | Y | N | minutes | NA |
 
 ## DISCLAIMER ##

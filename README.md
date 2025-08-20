@@ -32,7 +32,7 @@ A Home Assistant custom integration for intelligent water usage monitoring with 
   - Add multiple instances with different sensors and thresholds
 - Synthetic flow testing support
   - Optional integration-owned number to inject synthetic GPM for testing (no need to waste actual water).
-- **NEW: Shutoff valve support**
+- Shutoff valve support
   - Optionally link a shutoff valve entity (switch, input_boolean, or valve)
   - Per-detector auto-shutoff toggles: auto-shutoff can be enabled for each leak detector
   - When a leak is detected, the valve is turned off automatically (if enabled)
@@ -56,7 +56,7 @@ HACS
 
 <img width="364" height="920" alt="image" src="https://github.com/user-attachments/assets/0c773851-d4fa-4782-8683-b673e0701524" />
 
-Setup page (step 1)
+### Setup page
 - Sensor Name Prefix
 - Flow Rate Sensor (required)
 - Volume Sensor (optional; if provided, Water Monitor uses it as the source of truth. If omitted, Water Monitor computes volume from the flow sensor.)
@@ -69,11 +69,12 @@ Setup page (step 1)
 - Create Low-flow leak sensor (checkbox)
 - Create Tank refill leak sensor (checkbox)
 - Enable Intelligent Leak Detection (experimental) (checkbox)
-- **Shutoff Valve Entity (optional)**
+- Shutoff Valve Entity (optional)
 
+
+
+### Low-flow leak 
 If “Create Low-flow leak sensor” is checked, you’ll be presented with a second page:
-
-Low-flow leak (step 2)
 - Max low-flow threshold (e.g., 0.5 GPM)
 - Seed low-flow duration (seconds)
 - Leak persistence required to trigger (seconds)
@@ -83,11 +84,10 @@ Low-flow leak (step 2)
 - Smoothing window (seconds)
 - Cooldown after clear (seconds)
 - Clear on sustained high flow (seconds; blank to disable)
-- **Auto shutoff on trigger (per-detector)**
+- Auto shutoff on trigger (per-detector)
 
+### Tank refill leak
 If “Create tank refill leak sensor” is checked, you’ll be presented with a third page:
-
-Tank refill leak (step 2)
 - Minimum refill volume (ignore refills smaller than this)
 - Maximum refill volume (ignore refills larger than this; 0 disables the cap)
 - Similarity tolerance (%) — how close in volume refills must be to count as “similar”
@@ -97,29 +97,32 @@ Tank refill leak (step 2)
 - Cooldown after clear (seconds) — optional suppression period before re-triggering
 - Minimum refill duration (seconds; 0 disables)
 - Maximum refill duration (seconds; 0 disables)
+- Auto shutoff on trigger (per-detector)
 
+### Intelligent Leak Detection (experimental)
 If “Enable Intelligent Leak Detection” is checked, you’ll be presented with another page:
-
-Intelligent Leak Detection (experimental)
 - Occupancy mode input_select (optional)
 - Away states (comma-separated, optional)
 - Vacation states (comma-separated, optional)
 - Enable learning mode (toggle)
+- Auto shutoff on trigger (per-detector)
 
 Notes
-
 - CSV fields accept multiple labels separated by commas, e.g. "On Vacation, Returning from Vacation".
 - Learning mode is intended for future automation-assisted tuning; you can toggle it via Options or automations.
 
-Reconfiguration
+### Synthetic Flow Options
+If Enable Synthetic Flow (testing) is enabled, you'll be presented with another page:
+- Include synthetic flow in detectors - allow detectors to see synthetic flow
+- Include synthetic flow in daily analysis - allow intelligent leak analysis to see synthetic flow
+
+## Reconfiguration
 
 - Open Settings → Devices & Services → Water Monitor → Configure.
-- The low-flow leak sensor is optional and can be enabled/disabled at any time:
-  - Enabling creates the binary sensor.
-  - Disabling removes the binary sensor on reload.
-- **The shutoff valve and auto-shutoff toggles can be changed at any time via Options.**
+- The leak sensors are optional and can be enabled/disabled at any time from the main setup page.
+- The shutoff valve and auto-shutoff toggles can be changed at any time via Options
 
-Units
+## Units
 
 - If a Volume sensor is configured, its unit determines display (gallons/liters) and ensures alignment with the Energy dashboard.
 - If no Volume sensor is configured, Water Monitor computes volume by integrating the Flow sensor (default method: Trapezoidal; alternative: Left to match external counters). Units are inferred from the Flow sensor (e.g., GPM → gal, L/min → L).
@@ -154,7 +157,6 @@ Units
     - idle_zero_s, high_flow_s
     - clear_idle_s, clear_on_high_s, cooldown_s, cooldown_until
     - smoothing_s, baseline_margin_pct
-    - **auto_shutoff_on_trigger, auto_shutoff_effective, auto_shutoff_valve_entity, valve_off**
 - Tank refill leak (binary_sensor, optional)
   - State: on/off (device_class: problem)
   - Detects repeated, similar refill events within a time window
@@ -170,8 +172,7 @@ Units
 - Upstream sensors health (binary_sensor)
   - State: on/off (device_class: connectivity)
   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
-  - **Now also tracks the shutoff valve if configured**
-- **Synthetic flow (number, optional)**
+- Synthetic flow (number, optional)
   - State: Current synthetic flow (gpm)
   - When the shutoff valve is off, this is automatically set to zero to simulate a true shutoff
 

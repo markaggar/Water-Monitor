@@ -3,7 +3,7 @@
 # Water Monitor
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
-> You must install the integration first (via HACS or manual copy) and restart Home Assistant before you can install the integration from the Settings/Devices and Services 
+> You must download/copy the integration first (via HACS or manual copy) and restart Home Assistant before you can install the integration from the Settings/Devices and Services 
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection. Only a Flow sensor is required; a Volume sensor is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 

@@ -230,8 +230,8 @@ Duration counts only the solid blocks (non-zero flow):
 
 ### Current session volume
 
-- State: Live session volume while water is in use; during a gap, shows the intermediate (snapshot) volume; after finalization, resets to 0
-- Attributes (triaged to match the most relevant stage: current → intermediate → final):
+- State: Live session volume while water is in use or in a gap; after finalization, resets to 0
+- Attributes (highlights):
   - session_stage: current | intermediate | final
   - session_duration: Seconds (from the selected stage; excludes gap time)
   - session_average_flow: Derived average flow (from the selected stage; excludes gap time)
@@ -239,7 +239,6 @@ Duration counts only the solid blocks (non-zero flow):
   - flow_sensor_value: Instantaneous flow rate
   - Plus raw values for transparency:
     - current_session_volume, current_session_duration, current_session_average_flow, current_session_hot_water_pct
-    - intermediate_session_volume, intermediate_session_duration, intermediate_session_average_flow, intermediate_session_hot_water_pct
     - last_session_volume, last_session_duration, last_session_average_flow, last_session_hot_water_pct
 
 Notes

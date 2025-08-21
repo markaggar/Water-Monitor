@@ -116,26 +116,19 @@ automation:
     variables:
       valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
       notify_service: notify.mark  # EDIT ME if different
-    trigger:
-      - platform: state
-        entity_id:
-          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
-      - platform: state
-        entity_id:
-          - binary_sensor.water_monitor_upstream_health
-      - platform: state
-        entity_id:
-          - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
-      - platform: state
-        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
-      - platform: time_pattern
-        minutes: "/1"
-      - platform: event
-        event_type: mobile_app_notification_action
-    condition: []
-    variables:
+  # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
+  # That means we cannot define leak/upstream/volume entity lists here and
+  # reference them in the triggers below via {{ variables }}. If you need to
+  # change which entities are used, edit the static entity_id lists inside
+  # the trigger section directly. For multi‑instance setups, duplicate the
+  # relevant trigger block and add the extra entity IDs.
+  # If you want a fully parameterized version, convert this into a Blueprint
+  # with inputs for leak sensors, upstream sensor(s), session sensors, and
+  # valve. (Happy to generate that — just ask.)
+  #
+  # notify_service above is used throughout with service: "{{ notify_service }}".
+  # Replace it with your mobile app notify.* or group notify target.
+      # Derived (no edit needed)
       valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
       now_ts: "{{ now().timestamp() }}"
       snooze_until: >
@@ -217,6 +210,25 @@ automation:
           {% endif %}
         {% endif %}
         {{ acts }}
+    trigger:
+      - platform: state
+        entity_id:
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+      - platform: state
+        entity_id:
+          - binary_sensor.water_monitor_upstream_health
+      - platform: state
+        entity_id:
+          - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
+      - platform: state
+        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
+      - platform: time_pattern
+        minutes: "/1"
+      - platform: event
+        event_type: mobile_app_notification_action
+  condition: []
     action:
       - choose:
           - conditions: >

@@ -498,7 +498,8 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self._attr_extra_state_attributes = {}
 
         self._flow_entity_id = flow_entity_id
-        self._volume_entity_id = volume_entity_id
+        # Normalize optional IDs: treat empty strings as None
+        self._volume_entity_id = volume_entity_id or None
         self._hot_water_entity_id = hot_water_entity_id or None
         self._valve_entity_id = valve_entity_id or None
 

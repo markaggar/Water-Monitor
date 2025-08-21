@@ -7,8 +7,9 @@
 # Zero / minimal user edits expected:
 # - Adjust notification service if not `notify.mark`.
 # - Optionally tweak helper default values below.
-# - For extremely large installs you may wish to scope the state_changed event
-#   trigger, but it is fine for typical homes.
+# (Former broad state_changed trigger removed; targeted triggers below are
+#  efficient for typical homes. Add more explicit entity_ids only if you have
+#  multiple integration instances.)
 #
 # This package auto-discovers Water Monitor leak detectors, valve + context,
 # and session metrics. It sends actionable notifications, supports snooze,
@@ -116,18 +117,18 @@ automation:
     variables:
       valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
       notify_service: notify.mark  # EDIT ME if different
-  # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
-  # That means we cannot define leak/upstream/volume entity lists here and
-  # reference them in the triggers below via {{ variables }}. If you need to
-  # change which entities are used, edit the static entity_id lists inside
-  # the trigger section directly. For multi‑instance setups, duplicate the
-  # relevant trigger block and add the extra entity IDs.
-  # If you want a fully parameterized version, convert this into a Blueprint
-  # with inputs for leak sensors, upstream sensor(s), session sensors, and
-  # valve. (Happy to generate that — just ask.)
-  #
-  # notify_service above is used throughout with service: "{{ notify_service }}".
-  # Replace it with your mobile app notify.* or group notify target.
+      # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
+      # That means we cannot define leak/upstream/volume entity lists here and
+      # reference them in the triggers below via {{ variables }}. If you need to
+      # change which entities are used, edit the static entity_id lists inside
+      # the trigger section directly. For multi‑instance setups, duplicate the
+      # relevant trigger block and add the extra entity IDs.
+      # If you want a fully parameterized version, convert this into a Blueprint
+      # with inputs for leak sensors, upstream sensor(s), session sensors, and
+      # valve. (Happy to generate that — just ask.)
+      #
+      # notify_service above is used throughout with service: "{{ notify_service }}".
+      # Replace it with your mobile app notify.* or group notify target.
       # Derived (no edit needed)
       valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
       now_ts: "{{ now().timestamp() }}"
@@ -228,7 +229,7 @@ automation:
         minutes: "/1"
       - platform: event
         event_type: mobile_app_notification_action
-  condition: []
+    condition: []
     action:
       - choose:
           - conditions: >

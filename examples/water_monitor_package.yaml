@@ -249,9 +249,9 @@ automation:
     condition: []
     action:
       # Diagnostic logging to identify which trigger fires frequently.
-    - variables:
-      dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
-      dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
+      - variables:
+          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
+          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
       - service: system_log.write
         data:
           message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"

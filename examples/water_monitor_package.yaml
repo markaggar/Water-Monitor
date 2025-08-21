@@ -383,7 +383,7 @@ automation:
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder
                   datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-  default: []
+        default: []
       - stop: Done
 
 ###############################################################################

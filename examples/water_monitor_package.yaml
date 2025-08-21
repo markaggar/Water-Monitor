@@ -158,9 +158,9 @@ automation:
       is_last_session_entity: >
         {{ trigger_entity is match('sensor\\..*_last_session_volume$') }}
       leak_turning_on: >
-        {{ is_leak_entity and old_state in ['off'] and new_state == 'on' }}
+        {{ trigger.id == 'leak_on' }}
       leak_turning_off: >
-        {{ is_leak_entity and old_state in ['on'] and new_state == 'off' }}
+        {{ trigger.id == 'leak_off' }}
       upstream_down: >
         {{ is_upstream_entity and old_state in ['on'] and new_state == 'off' }}
       upstream_up: >
@@ -212,8 +212,19 @@ automation:
         {% endif %}
         {{ acts }}
     trigger:
+      # Leak state transitions only (ignore attribute churn):
       - platform: state
-        id: leak
+        id: leak_on
+        from: 'off'
+        to: 'on'
+        entity_id:
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+      - platform: state
+        id: leak_off
+        from: 'on'
+        to: 'off'
         entity_id:
           - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
           - binary_sensor.water_monitor_tank_refill_leak       # optional
@@ -238,9 +249,9 @@ automation:
     condition: []
     action:
       # Diagnostic logging to identify which trigger fires frequently.
-      - variables:
-          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
-          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
+    - variables:
+      dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
+      dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
       - service: system_log.write
         data:
           message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"

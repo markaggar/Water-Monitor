@@ -56,21 +56,6 @@ Also, having a controllable valve that enables you or this integration to remote
 
 **Finally, your use of this integration means you agree that the author(s) of this integration bear no responsibility for leaks that are not detected or notified, due to any cause. It is important that you do your own testing, particularly ensuring that the parameters you set make sense for your situation, and that any shutoff valves work as expected**.
 
-## Devices
-Here is a list of devices that the community has tested with the integration (submit an issue to add your experience with a device)
-
-| Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Sensor Latency | Link |
-|--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------|------|
-| Droplet | Hydrific Water | Y | Y | N | N | Y (MQTT) | <3s | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
-| Flowsmart All-in-one | Yolink | N | N| Y | Y | N | minutes | NA |
-
-## DISCLAIMER ##
-A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g. leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater, washing machine, toilet o-ring), water infiltration from outside, or a blocked sewer pipe (speaking from experience), a water flow sensor (and this integration) will not detect those events. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor (again, experienced all of those!).
-
-Also, having a controllable valve that enables you or an automation to remotely shut off water to the house in the event of a leak detection (from either this integration or a leak/moisture sensor) could pay for itself many times over if you ever have a leak detected but are not at home to turn the water off manually.
-
-**Finally, your use of this integration means you agree that the author(s) of this integration bear no responsibility for leaks that are not detected or notified, due to any cause. It is important that you do your own testing, particularly ensuring that the parameters you set make sense for your situation**.
-
 ## Installation
 
 ### HACS

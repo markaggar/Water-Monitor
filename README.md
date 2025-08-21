@@ -73,9 +73,6 @@ Also, having a controllable valve that enables you or this integration to remote
 4) Search for “Water Monitor” and complete the setup
 
 ## Configuration
-
-<img width="364" height="920" alt="image" src="https://github.com/user-attachments/assets/0c773851-d4fa-4782-8683-b673e0701524" />
-
 ### Setup page
 - Sensor Name Prefix
 - Flow Rate Sensor (required)

@@ -237,6 +237,8 @@ automation:
         id: last_session
         entity_id:
           - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
+  # Wait 1s after a value change so attribute-only updates (every second) don't fire.
+  for: '00:00:01'
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
@@ -257,6 +259,11 @@ automation:
           message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
           level: info
       - choose:
+          # Guard: suppress actions when last_session trigger fired but value below threshold and not zero reset
+          - conditions: >
+              {{ trigger.id == 'last_session' and ( (last_session_volume | float(0)) < (large_threshold | float(0)) and (last_session_volume | float(0)) > 0 ) }}
+            sequence:
+              - stop: "Ignore low-volume session update"
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
             sequence:

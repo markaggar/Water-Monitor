@@ -65,35 +65,31 @@ input_datetime:
 ###############################
 # Template Sensors (optional) #
 ###############################
-    variables:
-      # ------------------------------------------------------------------
-      # EDIT ME: Entity lists (explicit IDs; wildcards not supported here)
-      # Populate with the actual entity_ids created by your Water Monitor
-      # instance(s). Remove any that you don't use.
-      # ------------------------------------------------------------------
-      # Main shutoff valve entity (leave blank if none). Could be switch./valve./input_boolean.
-      valve_entity: ""  # e.g. switch.main_water_valve
-      notify_service: notify.mark  # EDIT ME if different
-    trigger:
-      # Leak detectors
-      - platform: state
-        entity_id: 
-          # List each enabled leak detector entity_id; keep only those that exist.
-          - binary_sensor.water_monitor_low_flow_leak
-          - binary_sensor.water_monitor_tank_refill_leak
-          - binary_sensor.water_monitor_intelligent_leak
-      # Upstream health
-      - platform: state
-        entity_id:
-          - binary_sensor.water_monitor_upstream_health
-      # Last session volume sensors (high usage alert)
-      - platform: state
-        entity_id:
-          - sensor.water_monitor_last_session_volume
-      # Valve (only if configured) - we still include a dummy fallback so file loads if left blank
-      - platform: state
-        entity_id: input_boolean.water_monitor_notifications_enabled
-            {% set synth_flow = (synth_numbers[0].state | float(0)) if synth_numbers|length > 0 else 0 %}
+template:
+  - trigger: []  # purely template-based
+    sensor:
+      - name: Water Monitor Any Leak Active
+        unique_id: water_monitor_any_leak_active
+        state: >
+          {% set leaks = states.binary_sensor | selectattr('state','eq','on')
+              | selectattr('attributes.device_class','defined')
+              | selectattr('attributes.device_class','eq','problem')
+              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+          {{ 'on' if leaks|length > 0 else 'off' }}
+        attributes:
+          active_leaks: >
+            {% set leaks = states.binary_sensor | selectattr('state','eq','on')
+                | selectattr('attributes.device_class','defined')
+                | selectattr('attributes.device_class','eq','problem')
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+            {{ leaks | map(attribute='entity_id') | list }}
+      - name: Water Monitor Synthetic Active
+        unique_id: water_monitor_synthetic_active
+        state: >
+          {# Heuristic: explicit test mode OR synthetic flow number > 0 #}
+          {% set test_mode = is_state('input_boolean.water_monitor_test_mode','on') %}
+          {% set synth_numbers = states.number | selectattr('entity_id','search','_synthetic_flow_gpm') | list %}
+          {% set synth_flow = (synth_numbers[0].state | float(0)) if synth_numbers|length > 0 else 0 %}
           {% set active = test_mode or synth_flow > 0 %}
           {{ 'on' if active else 'off' }}
 
@@ -118,41 +114,30 @@ automation:
     mode: restart
     description: Unified leak, valve, high usage, reminders, and upstream health notifications.
     variables:
-      # EDIT ME: Main water valve entity (leave blank if none)
-      valve_entity: ""  # e.g. "switch.main_water_valve" or "valve.main_water"
+      valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
       notify_service: notify.mark  # EDIT ME if different
     trigger:
-      # Leak detectors (wildcard patterns allow dynamic discovery)
       - platform: state
         entity_id:
-          - binary_sensor.*_low_flow_leak
-          - binary_sensor.*_tank_refill_leak
-          - binary_sensor.*_intelligent_leak
-      # Upstream health
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
       - platform: state
         entity_id:
-          - binary_sensor.*_upstream_health
-      # Last session volume sensors (for high-usage alerts)
+          - binary_sensor.water_monitor_upstream_health
       - platform: state
         entity_id:
-          - sensor.*_last_session_volume
-      # Valve (explicit; wildcard often not needed). Add more if required.
-  # Valve trigger (replace dummy with your actual valve entity by setting valve_entity variable above;
-  # this static dummy keeps automation valid if no valve configured.)
+          - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
       - platform: state
-        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy if valve_entity left blank
-  # Example (uncomment & remove dummy above):
-  # entity_id: switch.main_water_valve
-      # Periodic tick for reminders / snooze wake
+        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
       - platform: time_pattern
         minutes: "/1"
-      # Mobile actionable notification responses (capture all and filter inside)
       - platform: event
         event_type: mobile_app_notification_action
     condition: []
     variables:
-  valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
-  now_ts: "{{ now().timestamp() }}"
+      valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
+      now_ts: "{{ now().timestamp() }}"
       snooze_until: >
         {% set dt = states('input_datetime.water_monitor_snooze_until') %}
         {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}
@@ -234,8 +219,8 @@ automation:
         {{ acts }}
     action:
       - choose:
-      - conditions: >
-        {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
+          - conditions: >
+              {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
             sequence:
               - variables:
                   mobile_action: "{{ trigger.event.data.action }}"
@@ -398,7 +383,7 @@ automation:
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder
                   datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-        default: []
+  default: []
       - stop: Done
 
 ###############################################################################

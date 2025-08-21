@@ -41,11 +41,11 @@ A Home Assistant custom integration for water usage monitoring that provides ses
   - Optional integration-owned number to inject synthetic GPM for testing (no need to waste actual water)
 
 ## Devices
-Here is a list of devices that the community has tested with the integration (submit an issue to add your experience with a device)
+Here is a list of devices that the community has tested or should work with the integration (submit an issue to add your experience with a device)
 
 | Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Flow/Volume Sensor Latency | Plumbing Required | Link |
 |--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------------------|-------------------|------|
-| Droplet | Hydrific Water | Y (Flow) | Y | N | N | Y (MQTT) | <3s | N | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
+| Droplet | Hydrific Water | Y (Flow Sensor) | Y | N | N | Y (MQTT) | <3s | N | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
 | Flowsmart All-in-one | Yolink | Y (Valve) | N | Y | Y | N | minutes | Y | [link](https://shop.yosmart.com/products/ys5008-20) |
 | Titan Water Valve Actuator | Zooz | Y (Valve) | N | N | Y| Y (Zwave) | NA | N | [link](https://amzn.to/4mPD3x8) |
 

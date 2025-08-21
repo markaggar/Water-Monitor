@@ -213,24 +213,38 @@ automation:
         {{ acts }}
     trigger:
       - platform: state
+        id: leak
         entity_id:
           - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
           - binary_sensor.water_monitor_tank_refill_leak       # optional
           - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
       - platform: state
+        id: upstream
         entity_id:
           - binary_sensor.water_monitor_upstream_health
       - platform: state
+        id: last_session
         entity_id:
           - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
       - platform: state
+        id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
       - platform: time_pattern
+        id: tick
         minutes: "/1"
       - platform: event
+        id: mobile_action
         event_type: mobile_app_notification_action
     condition: []
     action:
+      # Diagnostic logging to identify which trigger fires frequently.
+      - variables:
+          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
+          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
+      - service: system_log.write
+        data:
+          message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
+          level: info
       - choose:
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}

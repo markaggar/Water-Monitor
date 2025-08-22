@@ -227,7 +227,8 @@ automation:
         id: current_session_high
         value_template: >-
           {% set cur = state_attr('sensor.water_monitor_last_session_volume','current_session_volume') | float(0) %}
-          {{ cur >= (large_threshold | float(25)) }}
+          {% set threshold = states('input_number.water_monitor_large_session_volume') | float(25) %}
+          {{ cur >= threshold }}
         for:
           seconds: 5
       - platform: state

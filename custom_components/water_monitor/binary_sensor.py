@@ -904,14 +904,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         auto = bool(ex.get(CONF_LOW_FLOW_AUTO_SHUTOFF, False))
         effective = bool(valve_ent and auto)
         if not prev_on and self._attr_is_on and effective:
-            try:
-                dom = valve_ent.split(".")[0]
-                if dom == "valve":
-                    await self.hass.services.async_call("valve", "close_valve", {"entity_id": valve_ent}, blocking=False)
-                elif dom in ("switch", "input_boolean"):
-                    await self.hass.services.async_call(dom, "turn_off", {"entity_id": valve_ent}, blocking=False)
-            except Exception:
-                pass
+            self._async_call_valve_off(valve_ent)
 
         # Phase
         if self._attr_is_on:
@@ -1002,6 +995,8 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         self._last_seen_pair: Optional[Tuple[float, int]] = None
         # Track synthetic flow at trigger time for notifications
         self._synthetic_flow_at_trigger = 0.0
+        # Track current synthetic flow for consistent capture
+        self._current_synthetic_flow = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -1079,6 +1074,14 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         await self._evaluate(datetime.now(timezone.utc))
 
     async def _evaluate(self, now: datetime) -> None:
+        # Update current synthetic flow for consistent capture
+        try:
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            if isinstance(data, dict):
+                self._current_synthetic_flow = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
+        except Exception:
+            self._current_synthetic_flow = 0.0
+            
         # Cooldown guard: don't re-trigger during cooldown
         if self._cooldown_until and now < self._cooldown_until:
             pass  # still update attributes/history, but won't set ON based on count
@@ -1170,14 +1173,17 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             prev_was_off = not self._attr_is_on
             self._attr_is_on = True
             transitioning_on = prev_was_off  # Store transition state for auto-shutoff
-            # Capture synthetic flow at trigger time for notifications
+            # Capture synthetic flow at trigger time for notifications - use same method as low-flow
             if prev_was_off:
-                try:
-                    data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-                    if isinstance(data, dict):
-                        self._synthetic_flow_at_trigger = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
-                except Exception:
-                    self._synthetic_flow_at_trigger = 0.0
+                self._synthetic_flow_at_trigger = getattr(self, '_current_synthetic_flow', 0.0)
+                # Fallback to domain data if attribute not available
+                if self._synthetic_flow_at_trigger == 0.0:
+                    try:
+                        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                        if isinstance(data, dict):
+                            self._synthetic_flow_at_trigger = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
+                    except Exception:
+                        self._synthetic_flow_at_trigger = 0.0
         else:
             # Auto-clear after idle period since last event
             if self._attr_is_on and self._last_event_ts and (now - self._last_event_ts).total_seconds() >= self._clear_idle_s:
@@ -1210,14 +1216,7 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
 
         # Auto-shutoff action when transitioning OFF->ON
         if transitioning_on and effective and valve_ent:
-            try:
-                dom = valve_ent.split(".")[0]
-                if dom == "valve":
-                    await self.hass.services.async_call("valve", "close_valve", {"entity_id": valve_ent}, blocking=False)
-                elif dom in ("switch", "input_boolean"):
-                    await self.hass.services.async_call(dom, "turn_off", {"entity_id": valve_ent}, blocking=False)
-            except Exception:
-                pass
+            self._async_call_valve_off(valve_ent)
         if prev_on != self._attr_is_on:
             self.async_write_ha_state()
         else:

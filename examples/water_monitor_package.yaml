@@ -93,9 +93,13 @@ template:
               | selectattr('attributes.device_class','defined')
               | selectattr('attributes.device_class','eq','problem')
               | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
-          {% set synthetic_leaks = active_leaks | selectattr('attributes.synthetic_flow_at_trigger','defined')
-              | selectattr('attributes.synthetic_flow_at_trigger','gt',0) | list %}
-          {% set active = test_mode or synthetic_leaks | length > 0 %}
+          {% set synthetic_active = namespace(found=false) %}
+          {% for leak in active_leaks %}
+            {% if leak.attributes.synthetic_flow_at_trigger is defined and leak.attributes.synthetic_flow_at_trigger > 0 %}
+              {% set synthetic_active.found = true %}
+            {% endif %}
+          {% endfor %}
+          {% set active = test_mode or synthetic_active.found %}
           {{ 'on' if active else 'off' }}
         attributes:
           test_mode_active: >
@@ -105,9 +109,13 @@ template:
                 | selectattr('attributes.device_class','defined')
                 | selectattr('attributes.device_class','eq','problem')
                 | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
-            {% set synthetic_leaks = active_leaks | selectattr('attributes.synthetic_flow_at_trigger','defined')
-                | selectattr('attributes.synthetic_flow_at_trigger','gt',0) | list %}
-            {{ synthetic_leaks | map(attribute='entity_id') | list }}
+            {% set synthetic_leaks = [] %}
+            {% for leak in active_leaks %}
+              {% if leak.attributes.synthetic_flow_at_trigger is defined and leak.attributes.synthetic_flow_at_trigger > 0 %}
+                {% set synthetic_leaks = synthetic_leaks + [leak.entity_id] %}
+              {% endif %}
+            {% endfor %}
+            {{ synthetic_leaks }}
           synthetic_flow_values: >
             {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
                 | selectattr('attributes.device_class','defined')

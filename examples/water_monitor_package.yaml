@@ -333,12 +333,36 @@ automation:
                   title: >
                     {% if is_synthetic %}TEST Leak ({{ leak_name }}){% else %}Water Leak Detected ({{ leak_name }}){% endif %}
                   message: >
-                    {% if is_synthetic %}Simulation mode active. {% endif %}
-                    {{ leak_name }} leak detected by {{ state_attr(trigger.entity_id,'friendly_name') }}.
-                    {% if valve_effective %}
-                      {% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
+                    {% set trigger_time = as_timestamp(trigger.to_state.last_changed) | timestamp_custom('%-m/%-d %-I:%M %p') %}
+                    {% if is_synthetic %}🧪 Simulation mode active. {% endif %}
+                    {% if trigger.entity_id.endswith('_low_flow_leak') %}
+                      🚰 {{ leak_name }} Leak • {{ trigger_time }}
+                      {% set flow_rate = trigger.to_state.attributes.get('flow', 0) | round(2) %}
+                      {% set duration = trigger.to_state.attributes.get('count_progress_s', 0) | round(0) %}
+                      Persistent {{ flow_rate }} GPM flow for {{ duration }}s
+                      {% if valve_effective %}{% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}{% else %}{% if valve_entity_ref %}Check faucets, toilets, outdoor taps{% endif %}{% endif %}
+                    {% elif trigger.entity_id.endswith('_tank_refill_leak') %}
+                      🚽 {{ leak_name }} Leak • {{ trigger_time }}
+                      {% set similar_count = trigger.to_state.attributes.get('similar_count', 0) %}
+                      {% set window_min = (trigger.to_state.attributes.get('window_s', 0) / 60) | round(0) %}
+                      {% set events = trigger.to_state.attributes.get('contributing_events', []) %}
+                      {{ similar_count }} similar bursts in {{ window_min }} minutes:
+                      {% for event in events[:4] -%}
+                      • {{ event.local_time or 'unknown' }}: {{ event.volume }} gal, {{ event.duration_s }}s{% if not loop.last %}  {% endif %}
+                      {%- endfor %}
+                      {% if events | length > 4 %}(+{{ events | length - 4 }} more){% endif %}
+                      {% if valve_effective %}{% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}{% endif %}
+                    {% elif trigger.entity_id.endswith('_intelligent_leak') %}
+                      🧠 {{ leak_name }} Leak • {{ trigger_time }}
+                      {% set current_usage = trigger.to_state.attributes.get('current_usage', 0) | round(1) %}
+                      {% set baseline = trigger.to_state.attributes.get('baseline_usage', 0) | round(1) %}
+                      Unusual pattern: {{ current_usage }} gal (baseline: {{ baseline }} gal)
+                      {% set context = trigger.to_state.attributes.get('usage_context', 'Unknown context') %}
+                      Context: {{ context }}
+                      {% if valve_effective %}{% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}{% endif %}
                     {% else %}
-                      {% if valve_entity_ref %}Valve still ON.{% endif %}
+                      {{ leak_name }} leak detected by {{ state_attr(trigger.entity_id,'friendly_name') }}.
+                      {% if valve_effective %}{% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}{% else %}{% if valve_entity_ref %}Valve still ON.{% endif %}{% endif %}
                     {% endif %}
                   data:
                     tag: "{{ notif_tag }}"
@@ -352,7 +376,24 @@ automation:
                 data:
                   title: "Leak Cleared ({{ leak_type }})"
                   message: >
-                    {{ leak_type }} leak cleared: {{ state_attr(trigger_entity,'friendly_name') }}.
+                    {% set clear_time = as_timestamp(trigger.to_state.last_changed) | timestamp_custom('%-m/%-d %-I:%M %p') %}
+                    {% if trigger.entity_id.endswith('_low_flow_leak') %}
+                      ✅ {{ leak_type }} Cleared • {{ clear_time }}
+                      Flow returned to normal
+                    {% elif trigger.entity_id.endswith('_tank_refill_leak') %}
+                      ✅ {{ leak_type }} Cleared • {{ clear_time }}
+                      {% set timeout_min = (trigger.to_state.attributes.get('timeout_cleared_s', 0) / 60) | round(0) %}
+                      No similar patterns for {{ timeout_min }} minutes
+                      {% set last_event = trigger.to_state.attributes.get('contributing_events', []) | last %}
+                      {% if last_event %}Last: {{ last_event.volume }} gal, {{ last_event.duration_s }}s at {{ last_event.local_time }}{% endif %}
+                    {% elif trigger.entity_id.endswith('_intelligent_leak') %}
+                      ✅ {{ leak_type }} Cleared • {{ clear_time }}
+                      Usage pattern returned to normal
+                      {% set current_usage = trigger.to_state.attributes.get('current_usage', 0) | round(1) %}
+                      Current: {{ current_usage }} gal
+                    {% else %}
+                      ✅ {{ leak_type }} cleared • {{ clear_time }}
+                    {% endif %}
               - service: input_datetime.set_datetime
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder

@@ -65,30 +65,32 @@ input_datetime:
 ###############################
 # Template Sensors (optional) #
 ###############################
-template:
-  - trigger: []  # purely template-based
-    sensor:
-      - name: Water Monitor Any Leak Active
+sensor:
+  - platform: template
+    sensors:
+      water_monitor_any_leak_active:
+        friendly_name: Water Monitor Any Leak Active
         unique_id: water_monitor_any_leak_active
-        state: >
+        value_template: >
           {% set leaks = states.binary_sensor | selectattr('state','eq','on')
               | selectattr('attributes.device_class','defined')
               | selectattr('attributes.device_class','eq','problem')
               | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
           {{ 'on' if leaks|length > 0 else 'off' }}
-        attributes:
+        attribute_templates:
           active_leaks: >
             {% set leaks = states.binary_sensor | selectattr('state','eq','on')
                 | selectattr('attributes.device_class','defined')
                 | selectattr('attributes.device_class','eq','problem')
                 | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
             {{ leaks | map(attribute='entity_id') | list }}
-      - name: Water Monitor Synthetic Active
+      water_monitor_synthetic_active:
+        friendly_name: Water Monitor Synthetic Active
         unique_id: water_monitor_synthetic_active
-        state: >
+        value_template: >
           {% set test_mode = is_state('input_boolean.water_monitor_test_mode','on') %}
           {{ 'on' if test_mode else 'off' }}
-        attributes:
+        attribute_templates:
           test_mode_active: >
             {{ is_state('input_boolean.water_monitor_test_mode','on') }}
 

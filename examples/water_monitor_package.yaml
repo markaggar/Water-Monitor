@@ -130,7 +130,7 @@ automation:
       # Replace it with your mobile app notify.* or group notify target.
       # Derived (no edit needed)
       valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
-      now_ts: "{{ now().timestamp() }}"
+    now_ts: "{{ now().timestamp() }}"
       snooze_until: >
         {% set dt = states('input_datetime.water_monitor_snooze_until') %}
         {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}
@@ -225,7 +225,15 @@ automation:
         id: current_session_high
         from: 'off'
         to: 'on'
-  entity_id: binary_sensor.water_monitor_synth_current_session_high
+      entity_id: binary_sensor.water_monitor_synth_current_session_high
+      # High session trigger using template (fires once when threshold sustained 5s)
+      - platform: template
+        id: current_session_high
+        value_template: >-
+          {% set cur = state_attr('sensor.water_monitor_last_session_volume','current_session_volume') | float(0) %}
+          {{ cur >= (large_threshold | float(25)) }}
+        for:
+          seconds: 5
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set

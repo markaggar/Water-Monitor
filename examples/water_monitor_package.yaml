@@ -206,26 +206,26 @@ automation:
         from: 'off'
         to: 'on'
         entity_id:
-          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
       - platform: state
         id: leak_off
         from: 'on'
         to: 'off'
         entity_id:
-          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
       - platform: state
         id: upstream
         entity_id:
-          - binary_sensor.water_monitor_upstream_health
+          - binary_sensor.water_monitor_synth_upstream_health
       - platform: state
         id: current_session_high
         from: 'off'
         to: 'on'
-        entity_id: binary_sensor.water_monitor_current_session_high
+  entity_id: binary_sensor.water_monitor_synth_current_session_high
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
@@ -305,15 +305,12 @@ automation:
                     {% else %}
                       {% if leak_valve_entity %}Valve still ON.{% endif %}
                     {% endif %}
-                  notif_actions: "{{ actionable_actions }}"
               - service: "{{ notify_service }}"
                 data:
                   message: "{{ notif_body }}"
                   title: "{{ notif_title }}"
                   data:
                     tag: "{{ notif_tag }}"
-                    actions: >
-                      {{ notif_actions }}
           - conditions: "{{ leak_turning_off }}"
             sequence:
               - condition: state
@@ -380,8 +377,8 @@ automation:
                   title: Water Valve Closed
                   message: >
                     Valve {{ leak_valve_entity }} closed.
-          - conditions: >
-              {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
+      - conditions: >
+        {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
@@ -391,7 +388,6 @@ automation:
                   elapsed_min: >
                     {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
                     {{ ((now().timestamp() - base)/60) | round(1) }}
-                  notif_actions: "{{ actionable_actions }}"
               - service: "{{ notify_service }}"
                 data:
                   title: Leak Persists (Valve Off)
@@ -399,8 +395,6 @@ automation:
                     Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
                   data:
                     tag: "{{ notif_tag }}"
-                    actions: >
-                      {{ notif_actions }}
               - service: input_datetime.set_datetime
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder

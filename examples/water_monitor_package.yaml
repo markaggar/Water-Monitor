@@ -186,7 +186,7 @@ automation:
         {{ valve_state_entity != '' and trigger_entity == valve_state_entity and old_state in ['on','open'] and new_state in ['off','closed'] }}
       reminder_due: >
         {{ any_leak_sensor_on and (now().timestamp() - last_reminder_ts) / 60 >= (reminder_interval_min | int) and not snoozed }}
-      _actionable_actions: >
+  _actionable_actions: >
         {% set show_actions = not synthetic_mode %}
         {% set base = [
          {'action':'WATER_SNOOZE','title':'Snooze'}

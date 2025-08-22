@@ -257,7 +257,7 @@ automation:
         data:
           message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
           level: info
-  - choose:
+      - choose:
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
             sequence:

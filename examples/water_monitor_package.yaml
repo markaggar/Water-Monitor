@@ -168,7 +168,7 @@ automation:
       last_session_volume: >
         {% if is_last_session_entity %}{{ trigger.to_state.state | float(0) }}{% else %}0{% endif %}
       high_session: >
-        {{ is_last_session_entity and (last_session_volume | float(0)) >= (large_threshold | float(0)) }}
+        {{ trigger.id == 'current_session_high' }}
       leak_auto_shutoff_effective: >
         {% if leak_turning_on or leak_turning_off %}
           {{ trigger.to_state.attributes.get('auto_shutoff_effective', False) }}
@@ -234,14 +234,10 @@ automation:
         entity_id:
           - binary_sensor.water_monitor_upstream_health
       - platform: state
-        id: last_session
-        entity_id:
-          - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
-        # Wait 1s after a value change so attribute-only updates (every second) don't fire.
-        for: '00:00:01'
-  # Explicit from/to not set (any state change). If still noisy, uncomment next two lines:
-  # from: '*'
-  # to: '*'
+        id: current_session_high
+        from: 'off'
+        to: 'on'
+        entity_id: binary_sensor.water_monitor_current_session_high
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
@@ -261,12 +257,7 @@ automation:
         data:
           message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
           level: info
-      - choose:
-          # Guard: suppress actions when last_session trigger fired but value below threshold and not zero reset
-          - conditions: >
-              {{ trigger.id == 'last_session' and ( (last_session_volume | float(0)) < (large_threshold | float(0)) and (last_session_volume | float(0)) > 0 ) }}
-            sequence:
-              - stop: "Ignore low-volume session update"
+  - choose:
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
             sequence:
@@ -379,22 +370,17 @@ automation:
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
               - variables:
+                  session_entity: sensor.water_monitor_last_session_volume
                   unit: >
-                    {{ state_attr(trigger_entity,'volume_unit') or 'units' }}
-                  vol: "{{ last_session_volume | round(2) }}"
-                  dur: "{{ state_attr(trigger_entity,'last_session_duration') | int(0) }}"
-                  avg: "{{ state_attr(trigger_entity,'last_session_average_flow') | float(0) | round(2) }}"
-                  hot: >
-                    {% set h = state_attr(trigger_entity,'last_session_hot_water_pct') %}
-                    {{ (h ~ '%') if h not in (none,'unknown') else 'n/a' }}
-                  cur_vol: "{{ state_attr(trigger_entity,'current_session_volume') | float(0) | round(2) }}"
-                  cur_dur: "{{ state_attr(trigger_entity,'current_session_duration') | int(0) }}"
-                  cur_avg: "{{ state_attr(trigger_entity,'current_session_average_flow') | float(0) | round(2) }}"
+                    {{ state_attr(session_entity,'volume_unit') or 'units' }}
+                  cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
+                  cur_dur: "{{ state_attr(session_entity,'current_session_duration') | int(0) }}"
+                  cur_avg: "{{ state_attr(session_entity,'current_session_average_flow') | float(0) | round(2) }}"
               - service: "{{ notify_service }}"
                 data:
-                  title: "High Water Usage ({{ vol }} {{ unit }})"
+                  title: "High Water Usage ({{ cur_vol }} {{ unit }})"
                   message: >
-                    Last session: {{ vol }} {{ unit }} over {{ dur }}s (avg {{ avg }} {{ unit }}/min; hot {{ hot }}). Current snapshot: {{ cur_vol }} {{ unit }} {{ cur_dur }}s (avg {{ cur_avg }}).
+                    Current session now at {{ cur_vol }} {{ unit }} over {{ cur_dur }}s (avg {{ cur_avg }} {{ unit }}/min). Threshold crossed.
           - conditions: >
               {{ valve_closed_event and not leak_turning_on }}
             sequence:

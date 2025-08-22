@@ -249,6 +249,8 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
         self._flow_active_start = None
         self._last_flow_now = 0.0
+        # Track synthetic flow at trigger time for notifications
+        self._synthetic_flow_at_trigger = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -439,6 +441,11 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
             # Suppress clearing while valve is off
             if prev and not is_on and valve_off:
                 is_on = True
+            
+            # Capture synthetic flow at trigger time for notifications
+            if not prev and is_on:
+                self._synthetic_flow_at_trigger = float(state.get("synthetic_flow_gpm", 0.0) or 0.0)
+            
             self._attr_is_on = is_on
             self._attr_extra_state_attributes = {
                 "baseline_ready": baseline_ready,
@@ -463,6 +470,8 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
                 "auto_shutoff_effective": effective,
                 "auto_shutoff_valve_entity": valve_entity,
                 "valve_off": valve_off,
+                # Synthetic flow tracking for notifications
+                "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
             }
             # Auto-shutoff action when transitioning OFF->ON
             if not prev and self._attr_is_on and effective and valve_entity:
@@ -688,6 +697,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         # Track detectors_flow provided by the tracker (includes synthetic when enabled)
         self._tracker_unsub = None
         self._last_detectors_flow = None
+        self._current_synthetic_flow = 0.0
 
         # Runtime counters
         self._seeded = False
@@ -697,6 +707,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self._high_flow_s = 0.0
         self._last_update = None
         self._cooldown_until = None
+        # Track synthetic flow at trigger time for notifications
+        self._synthetic_flow_at_trigger = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -772,6 +784,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             df = state.get("detectors_flow")
             if isinstance(df, (int, float)):
                 self._last_detectors_flow = float(df)
+            # Also track current synthetic flow for leak detection
+            self._current_synthetic_flow = float(state.get("synthetic_flow_gpm", 0.0) or 0.0)
         except Exception:
             pass
 
@@ -866,6 +880,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         prev_on = self._attr_is_on
         if not self._attr_is_on and can_trigger and self._seeded and self._count_progress >= self._min_s:
             self._attr_is_on = True
+            # Capture synthetic flow at trigger time for notifications
+            self._synthetic_flow_at_trigger = getattr(self, '_current_synthetic_flow', 0.0)
         # If turning on and auto-shutoff is enabled, request valve off
         ex = {**self._entry.data, **self._entry.options}
         valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
@@ -911,6 +927,8 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             "auto_shutoff_effective": effective,
             "auto_shutoff_valve_entity": (valve_ent or None),
             "valve_off": valve_off,
+            # Synthetic flow tracking for notifications
+            "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
         self._last_update = now
         self.async_write_ha_state()
@@ -966,6 +984,8 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         self._last_event_ts: Optional[datetime] = None
         self._cooldown_until: Optional[datetime] = None
         self._last_seen_pair: Optional[Tuple[float, int]] = None
+        # Track synthetic flow at trigger time for notifications
+        self._synthetic_flow_at_trigger = 0.0
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -1119,7 +1139,16 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
         if can_trigger and similar_count >= self._repeat:
+            prev_was_off = not self._attr_is_on
             self._attr_is_on = True
+            # Capture synthetic flow at trigger time for notifications
+            if prev_was_off:
+                try:
+                    data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                    if isinstance(data, dict):
+                        self._synthetic_flow_at_trigger = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
+                except Exception:
+                    self._synthetic_flow_at_trigger = 0.0
         else:
             # Auto-clear after idle period since last event
             if self._attr_is_on and self._last_event_ts and (now - self._last_event_ts).total_seconds() >= self._clear_idle_s:
@@ -1146,6 +1175,8 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             "auto_shutoff_effective": effective,
             "auto_shutoff_valve_entity": (valve_ent or None),
             "valve_off": valve_off,
+            # Synthetic flow tracking for notifications
+            "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
 
         # Always write so attributes stay fresh

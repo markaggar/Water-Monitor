@@ -86,12 +86,40 @@ template:
       - name: Water Monitor Synthetic Active
         unique_id: water_monitor_synthetic_active
         state: >
-          {# Heuristic: explicit test mode OR synthetic flow number > 0 #}
+          {# Check if test mode is on OR any active leak was triggered by synthetic flow #}
           {% set test_mode = is_state('input_boolean.water_monitor_test_mode','on') %}
-          {% set synth_numbers = states.number | selectattr('entity_id','search','_synthetic_flow_gpm') | list %}
-          {% set synth_flow = (synth_numbers[0].state | float(0)) if synth_numbers|length > 0 else 0 %}
-          {% set active = test_mode or synth_flow > 0 %}
+          {# Check active leaks for synthetic_flow_at_trigger > 0 #}
+          {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+              | selectattr('attributes.device_class','defined')
+              | selectattr('attributes.device_class','eq','problem')
+              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+          {% set synthetic_leaks = active_leaks | selectattr('attributes.synthetic_flow_at_trigger','defined')
+              | selectattr('attributes.synthetic_flow_at_trigger','gt',0) | list %}
+          {% set active = test_mode or synthetic_leaks | length > 0 %}
           {{ 'on' if active else 'off' }}
+        attributes:
+          test_mode_active: >
+            {{ is_state('input_boolean.water_monitor_test_mode','on') }}
+          active_synthetic_leaks: >
+            {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+                | selectattr('attributes.device_class','defined')
+                | selectattr('attributes.device_class','eq','problem')
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+            {% set synthetic_leaks = active_leaks | selectattr('attributes.synthetic_flow_at_trigger','defined')
+                | selectattr('attributes.synthetic_flow_at_trigger','gt',0) | list %}
+            {{ synthetic_leaks | map(attribute='entity_id') | list }}
+          synthetic_flow_values: >
+            {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+                | selectattr('attributes.device_class','defined')
+                | selectattr('attributes.device_class','eq','problem')
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+            {% set synthetic_data = {} %}
+            {% for leak in active_leaks %}
+              {% if leak.attributes.synthetic_flow_at_trigger is defined %}
+                {% set _ = synthetic_data.update({leak.entity_id: leak.attributes.synthetic_flow_at_trigger}) %}
+              {% endif %}
+            {% endfor %}
+            {{ synthetic_data }}
 
 #############################################
 # Core Automation: Water Monitor Orchestrator
@@ -114,7 +142,15 @@ automation:
     mode: restart
     description: Unified leak, valve, high usage, reminders, and upstream health notifications.
     variables:
-      valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
+      # Auto-discover valve entity from leak detector attributes (no manual config needed)
+      valve_entity: >
+        {% set leak_sensors = states.binary_sensor 
+           | selectattr('entity_id', 'match', '.*_(low_flow_leak|tank_refill_leak|intelligent_leak)$') 
+           | list %}
+        {% for sensor in leak_sensors %}
+          {% set valve_attr = sensor.attributes.get('auto_shutoff_valve_entity') %}
+          {% if valve_attr %}{{ valve_attr }}{% break %}{% endif %}
+        {% endfor %}
       notify_service: notify.mark  # EDIT ME if different
       # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
       # That means we cannot define leak/upstream/volume entity lists here and

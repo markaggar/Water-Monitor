@@ -108,14 +108,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create and start engine
     domain_data = hass.data.setdefault(DOMAIN, {})
     engine = WaterMonitorEngine(hass, entry.entry_id, ex)
+    
+    # Auto-discover valve entity from leak detector attributes if not manually configured
+    valve_entity = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+    if not valve_entity:
+        # Look for valve entity in any leak detector's attributes
+        try:
+            ent_reg = er.async_get(hass)
+            for entity in ent_reg.entities.values():
+                if (entity.platform == DOMAIN and 
+                    entity.config_entry_id == entry.entry_id and
+                    entity.unique_id.endswith(('_low_flow_leak', '_tank_refill_leak', '_intelligent_leak'))):
+                    # Get the state to check attributes
+                    state = hass.states.get(entity.entity_id)
+                    if state and state.attributes.get('auto_shutoff_valve_entity'):
+                        valve_entity = state.attributes.get('auto_shutoff_valve_entity')
+                        _LOGGER.info("[valve] Auto-discovered valve entity: %s from %s", valve_entity, entity.entity_id)
+                        break
+        except Exception as e:
+            _LOGGER.warning("[valve] Error auto-discovering valve entity: %s", e)
+    
     domain_data[entry.entry_id] = {
         "engine": engine,
         "synthetic_flow_gpm": 0.0,
-        "valve_entity_id": ex.get(CONF_WATER_SHUTOFF_ENTITY) or "",
+        "valve_entity_id": valve_entity,
         "valve_off": False,
         "_unsub_valve": None,
     }
     await engine.start()
+
+    # Function to rediscover valve entity if it wasn't found initially
+    async def _rediscover_valve_entity() -> str:
+        try:
+            ent_reg = er.async_get(hass)
+            for entity in ent_reg.entities.values():
+                if (entity.platform == DOMAIN and 
+                    entity.config_entry_id == entry.entry_id and
+                    entity.unique_id.endswith(('_low_flow_leak', '_tank_refill_leak', '_intelligent_leak'))):
+                    state = hass.states.get(entity.entity_id)
+                    if state and state.attributes.get('auto_shutoff_valve_entity'):
+                        discovered = state.attributes.get('auto_shutoff_valve_entity')
+                        _LOGGER.info("[valve] Rediscovered valve entity: %s from %s", discovered, entity.entity_id)
+                        return discovered
+        except Exception as e:
+            _LOGGER.debug("[valve] Error rediscovering valve entity: %s", e)
+        return ""
 
     # Track optional water shutoff valve state and react to changes
     async def _eval_valve_state(entity_id: str | None) -> None:
@@ -125,9 +162,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("[valve] No domain data for entry %s", entry.entry_id)
                 return
             valve = data.get("valve_entity_id")
+            
+            # Try to rediscover valve if none configured
+            if not valve:
+                valve = await _rediscover_valve_entity()
+                if valve:
+                    data["valve_entity_id"] = valve
+                    # Update subscription if we found a valve
+                    try:
+                        old_unsub = data.get("_unsub_valve")
+                        if old_unsub:
+                            old_unsub()
+                        async def _new_valve_event(event):
+                            await _eval_valve_state(event.data.get("entity_id"))
+                        data["_unsub_valve"] = async_track_state_change_event(hass, [valve], _new_valve_event)
+                    except Exception:
+                        data["_unsub_valve"] = None
+            
             if not valve:
                 data["valve_off"] = False
-                _LOGGER.info("[valve] No valve entity configured for entry %s", entry.entry_id)
+                _LOGGER.debug("[valve] No valve entity configured or discovered for entry %s", entry.entry_id)
                 return
             st = hass.states.get(valve)
             off = False
@@ -175,15 +229,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Subscribe to valve state changes if configured
     dd = domain_data.get(entry.entry_id)
     valve_ent = dd.get("valve_entity_id") if isinstance(dd, dict) else None
+    
+    async def _on_valve_event(event):
+        await _eval_valve_state(event.data.get("entity_id"))
+        
     if valve_ent:
-        async def _on_valve_event(event):
-            await _eval_valve_state(valve_ent)
         try:
             dd["_unsub_valve"] = async_track_state_change_event(hass, [valve_ent], _on_valve_event)
         except Exception:
             dd["_unsub_valve"] = None
         # Evaluate once at startup
         await _eval_valve_state(valve_ent)
+    else:
+        # Try initial discovery even if no valve configured
+        await _eval_valve_state(None)
 
     # Register a one-time service to trigger daily analysis on demand
     # Useful for testing without waiting until the scheduled time.

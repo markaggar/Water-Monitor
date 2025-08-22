@@ -210,9 +210,8 @@ automation:
           - binary_sensor.water_monitor_synth_upstream_health
       - platform: template
         id: current_session_high
-        value_template: >
-          {{ (state_attr('sensor.water_monitor_synth_last_session_volume','current_session_volume')|float(0)) >=
-             (states('input_number.water_monitor_large_session_volume')|float(25)) }}
+        value_template: >-
+          {{ (state_attr('sensor.water_monitor_synth_last_session_volume','current_session_volume') | float(0)) >= (states('input_number.water_monitor_large_session_volume') | float(25)) }}
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set

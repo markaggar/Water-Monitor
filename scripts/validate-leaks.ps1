@@ -9,6 +9,8 @@ param(
   [int]$TankOnS = 30,                      # ~1.25 gal at 2.5 gpm
   [int]$TankOffS = 30,                     # allow gap tolerance to finalize
   [int]$TankRepeats = 3,                   # repeat count
+  [int]$TestGapS = 60,                     # gap between test types to prevent chaining
+  [string]$ValveEntityId = 'input_boolean.test_shutoff_valve',  # valve for auto-shutoff tests
   [switch]$RestartFirst,
   [string]$NumberEntityId = 'number.water_monitor_synth_synthetic_flow_gpm'
 )
@@ -30,6 +32,27 @@ function Restart-HA {
 function Set-Synth([double]$v) {
   $body = @{ entity_id = $NumberEntityId; value = $v } | ConvertTo-Json -Compress
   Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/services/number/set_value" -Headers $hdrJson -Body $body | Out-Null
+}
+
+function Invoke-HAService([string]$domain, [string]$service, [hashtable]$data) {
+  $body = $data | ConvertTo-Json -Compress
+  Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/services/$domain/$service" -Headers $hdrJson -Body $body | Out-Null
+}
+
+function Set-ValveOn([string]$valveId) {
+  if (-not $valveId) { return }
+  try {
+    $domain = $valveId.Split('.')[0]
+    switch ($domain) {
+      'valve' { Invoke-HAService 'valve' 'open_valve' @{ entity_id = $valveId } }
+      'input_boolean' { Invoke-HAService 'input_boolean' 'turn_on' @{ entity_id = $valveId } }
+      'switch' { Invoke-HAService 'switch' 'turn_on' @{ entity_id = $valveId } }
+      default { Write-Warning "Unknown valve domain: $domain" }
+    }
+    Write-Host "Valve turned ON: $valveId" -ForegroundColor Green
+  } catch {
+    Write-Warning "Failed to turn on valve $valveId : $_"
+  }
 }
 
 function Find-EntityByName([string]$nameLike, [string]$fallbackLike) {
@@ -61,10 +84,27 @@ $tankLeakId = Find-EntityByName -nameLike '*Tank refill leak*' -fallbackLike 'bi
 if (-not $lowFlowId -or -not $tankLeakId) {
   Write-Warning "Could not resolve binary sensors. lowFlowId=$lowFlowId tankLeakId=$tankLeakId"
 }
-Write-Host "Using: lowFlow=$lowFlowId tankLeak=$tankLeakId number=$NumberEntityId" -ForegroundColor Cyan
 
-# Baseline zero
+# Try to detect valve entity from low-flow sensor attributes if not provided
+$detectedValve = $null
+if (-not $ValveEntityId -or $ValveEntityId -eq 'input_boolean.test_shutoff_valve') {
+  try {
+    $lowState = Get-State $lowFlowId
+    $detectedValve = $lowState.attributes.auto_shutoff_valve_entity
+    if ($detectedValve) {
+      $ValveEntityId = $detectedValve
+      Write-Host "Auto-detected valve: $ValveEntityId" -ForegroundColor Cyan
+    }
+  } catch {
+    Write-Warning "Could not auto-detect valve entity"
+  }
+}
+
+Write-Host "Using: lowFlow=$lowFlowId tankLeak=$tankLeakId valve=$ValveEntityId number=$NumberEntityId" -ForegroundColor Cyan
+
+# Baseline zero and ensure valve is ON
 Set-Synth 0.0; Start-Sleep -Seconds 2
+Set-ValveOn $ValveEntityId
 
 # ---- Low-flow leak test ----
 Write-Host "Low-flow: setting $LowFlowGpm gpm for $(($LowFlowSeedS+$LowFlowMinS+3))s" -ForegroundColor Cyan
@@ -83,6 +123,12 @@ $lowSt = Get-State $lowFlowId
 Write-Host ("Low-flow: on={0} phase={1} seed={2}s count={3}s idle_zero={4}s" -f $lowOn, $lowSt.attributes.phase, $lowSt.attributes.seed_progress_s, $lowSt.attributes.count_progress_s, $lowSt.attributes.idle_zero_s)
 Write-Host ("Low-flow cleared={0}" -f $cleared)
 
+# Gap between tests to prevent chaining + turn valve back ON
+Write-Host "Waiting $TestGapS seconds between tests to prevent chaining..." -ForegroundColor Yellow
+Set-Synth 0.0
+Set-ValveOn $ValveEntityId
+Start-Sleep -Seconds $TestGapS
+
 # ---- Tank refill leak test ----
 Write-Host "Tank leak: $TankRepeats refills at $TankFlowGpm gpm, $TankOnS s ON / $TankOffS s OFF" -ForegroundColor Cyan
 for ($i=1; $i -le $TankRepeats; $i++) {
@@ -94,5 +140,7 @@ $tlOn = Wait-Condition -timeoutS 120 -intervalS 2 -cond {
 $tl = Get-State $tankLeakId
 Write-Host ("Tank leak: on={0} similar_count={1} events_in_window={2} last_event={3}" -f $tlOn, $tl.attributes.similar_count, $tl.attributes.events_in_window, $tl.attributes.last_event)
 
-# Final reset
+# Final reset and restore valve
 Set-Synth 0.0
+Set-ValveOn $ValveEntityId
+Write-Host "Leak validation tests completed. Valve restored to ON state." -ForegroundColor Green

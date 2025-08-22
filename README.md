@@ -131,6 +131,16 @@ If Enable Synthetic Flow (testing) is enabled, you'll be presented with another 
 - Include synthetic flow in detectors - allow detectors to see synthetic flow
 - Include synthetic flow in daily analysis - allow intelligent leak analysis to see synthetic flow
 
+### Analysis Engine Schedule
+
+The intelligent leak detection analysis engine automatically runs daily at **3:10 AM local time** to:
+
+- Analyze yesterday's water usage patterns
+- Update baseline statistics for anomaly detection
+- Build context-aware usage profiles
+
+**Note:** Analysis only runs when "Enable Intelligent Leak Detection" is enabled. You can also manually trigger analysis using the `water_monitor.analyze_yesterday` service.
+
 ## Reconfiguration
 
 - Open Settings → Devices & Services → Water Monitor → Configure.

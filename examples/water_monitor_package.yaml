@@ -129,8 +129,8 @@ automation:
       # notify_service above is used throughout with service: "{{ notify_service }}".
       # Replace it with your mobile app notify.* or group notify target.
       # Derived (no edit needed)
-      valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
-    now_ts: "{{ now().timestamp() }}"
+  valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
+  now_ts: "{{ now().timestamp() }}"
       snooze_until: >
         {% set dt = states('input_datetime.water_monitor_snooze_until') %}
         {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}

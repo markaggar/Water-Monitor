@@ -186,6 +186,19 @@ automation:
         {{ valve_state_entity != '' and trigger_entity == valve_state_entity and old_state in ['on','open'] and new_state in ['off','closed'] }}
       reminder_due: >
         {{ any_leak_sensor_on and (now().timestamp() - last_reminder_ts) / 60 >= (reminder_interval_min | int) and not snoozed }}
+      _actionable_actions: >
+        {% set show_actions = not synthetic_mode %}
+        {% set base = [
+         {'action':'WATER_SNOOZE','title':'Snooze'}
+         ] if show_actions and (leak_turning_on or reminder_due) else [] %}
+        {% set reopen = [{'action':'WATER_REOPEN','title':'Reopen Water'}]
+          if show_actions and leak_auto_shutoff_effective and leak_valve_off and (leak_turning_on or reminder_due) else [] %}
+        {% set shutoff = [{'action':'WATER_SHUTOFF','title':'Shut Off Water'}]
+          if show_actions and leak_turning_on and (not leak_auto_shutoff_effective) and leak_valve_entity else [] %}
+        {% set test_toggle = [
+          {'action':'WATER_UNMARK_TEST','title':'Mark Real'} if is_state('input_boolean.water_monitor_test_mode','on') else {'action':'WATER_MARK_TEST','title':'Mark Test'}
+          ] if synthetic_mode else [] %}
+        {{ base + reopen + shutoff + test_toggle }}
     trigger:
       # Leak state transitions only (ignore attribute churn):
       - platform: state
@@ -208,10 +221,11 @@ automation:
         id: upstream
         entity_id:
           - binary_sensor.water_monitor_synth_upstream_health
-      - platform: template
+      - platform: state
         id: current_session_high
-        value_template: >-
-          {{ (state_attr('sensor.water_monitor_synth_last_session_volume','current_session_volume') | float(0)) >= (states('input_number.water_monitor_large_session_volume') | float(25)) }}
+        from: 'off'
+        to: 'on'
+  entity_id: binary_sensor.water_monitor_synth_current_session_high
       - platform: state
         id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
@@ -340,8 +354,8 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-        - variables:
-          session_entity: sensor.water_monitor_synth_last_session_volume
+              - variables:
+                  session_entity: sensor.water_monitor_last_session_volume
                   unit: >
                     {{ state_attr(session_entity,'volume_unit') or 'units' }}
                   cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
@@ -363,8 +377,8 @@ automation:
                   title: Water Valve Closed
                   message: >
                     Valve {{ leak_valve_entity }} closed.
-          - conditions: >
-              {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
+      - conditions: >
+        {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled

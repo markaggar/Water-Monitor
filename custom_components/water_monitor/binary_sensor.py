@@ -1162,9 +1162,14 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
         valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
+        
+        # Track if we're transitioning from OFF to ON for auto-shutoff
+        transitioning_on = False
+        
         if can_trigger and similar_count >= self._repeat:
             prev_was_off = not self._attr_is_on
             self._attr_is_on = True
+            transitioning_on = prev_was_off  # Store transition state for auto-shutoff
             # Capture synthetic flow at trigger time for notifications
             if prev_was_off:
                 try:
@@ -1203,8 +1208,8 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
 
-        # Always write so attributes stay fresh
-        if not prev_on and self._attr_is_on and effective and valve_ent:
+        # Auto-shutoff action when transitioning OFF->ON
+        if transitioning_on and effective and valve_ent:
             try:
                 dom = valve_ent.split(".")[0]
                 if dom == "valve":

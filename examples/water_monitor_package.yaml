@@ -221,11 +221,7 @@ automation:
         id: upstream
         entity_id:
           - binary_sensor.water_monitor_synth_upstream_health
-      - platform: state
-        id: current_session_high
-        from: 'off'
-        to: 'on'
-      entity_id: binary_sensor.water_monitor_synth_current_session_high
+  # (Removed obsolete state-based current_session_high trigger referencing missing entity)
       # High session trigger using template (fires once when threshold sustained 5s)
       - platform: template
         id: current_session_high

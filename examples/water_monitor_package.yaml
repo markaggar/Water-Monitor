@@ -381,28 +381,28 @@ automation:
                   title: Water Valve Closed
                   message: >
                     Valve {{ leak_valve_entity }} closed.
-      - conditions: >
-          {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
-        sequence:
-          - condition: state
-            entity_id: input_boolean.water_monitor_notifications_enabled
-            state: 'on'
-          - variables:
-              notif_tag: water_monitor_reminder
-              elapsed_min: >
-                {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
-                {{ ((now().timestamp() - base)/60) | round(1) }}
-          - service: "{{ notify_service }}"
-            data:
-              title: Leak Persists (Valve Off)
-              message: >
-                Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
-              data:
-                tag: "{{ notif_tag }}"
-          - service: input_datetime.set_datetime
-            data:
-              entity_id: input_datetime.water_monitor_last_leak_reminder
-              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+          - conditions: >
+              {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
+            sequence:
+              - condition: state
+                entity_id: input_boolean.water_monitor_notifications_enabled
+                state: 'on'
+              - variables:
+                  notif_tag: water_monitor_reminder
+                  elapsed_min: >
+                    {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
+                    {{ ((now().timestamp() - base)/60) | round(1) }}
+              - service: "{{ notify_service }}"
+                data:
+                  title: Leak Persists (Valve Off)
+                  message: >
+                    Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
+                  data:
+                    tag: "{{ notif_tag }}"
+              - service: input_datetime.set_datetime
+                data:
+                  entity_id: input_datetime.water_monitor_last_leak_reminder
+                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
         default: []
       - stop: Done
 

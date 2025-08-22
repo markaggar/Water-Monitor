@@ -126,7 +126,7 @@ automation:
       # with inputs for leak sensors, upstream sensor(s), session sensors, and
       # valve. (Happy to generate that — just ask.)
       #
-      # notify_service above is used throughout with service: "{{ notify_service }}".
+      # notify_service above is used throughout with action: "{{ notify_service }}".
       # Replace it with your mobile app notify.* or group notify target.
       # Derived (no edit needed)
       valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
@@ -262,7 +262,7 @@ automation:
                         data:
                           entity_id: input_datetime.water_monitor_snooze_until
                           datetime: "{{ (now() + timedelta(minutes=snooze_minutes|int)).strftime('%Y-%m-%d %H:%M:%S') }}"
-                      - service: "{{ notify_service }}"
+                      - action: "{{ notify_service }}"
                         data:
                           message: "Water alerts snoozed for {{ snooze_minutes }} minutes."
                   - conditions: "{{ mobile_action == 'WATER_REOPEN' and states(leak_valve_entity) in ['off','closed'] }}"
@@ -270,7 +270,7 @@ automation:
                       - service: homeassistant.turn_on
                         target:
                           entity_id: "{{ leak_valve_entity }}"
-                      - service: "{{ notify_service }}"
+                      - action: "{{ notify_service }}"
                         data:
                           message: "Reopening water ({{ leak_valve_entity }}) requested."
                   - conditions: "{{ mobile_action == 'WATER_SHUTOFF' and leak_valve_entity != '' and states(leak_valve_entity) in ['on','open'] }}"
@@ -278,7 +278,7 @@ automation:
                       - service: homeassistant.turn_off
                         target:
                           entity_id: "{{ leak_valve_entity }}"
-                      - service: "{{ notify_service }}"
+                      - action: "{{ notify_service }}"
                         data:
                           message: "Shutting off water ({{ leak_valve_entity }}) requested."
                   - conditions: "{{ mobile_action == 'WATER_MARK_TEST' }}"
@@ -309,7 +309,7 @@ automation:
                     {% else %}
                       {% if leak_valve_entity %}Valve still ON.{% endif %}
                     {% endif %}
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   message: "{{ notif_body }}"
                   title: "{{ notif_title }}"
@@ -320,7 +320,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: "Leak Cleared ({{ leak_type }})"
                   message: >
@@ -338,7 +338,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Issue
                   message: >
@@ -348,7 +348,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Restored
                   message: >
@@ -365,7 +365,7 @@ automation:
                   cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
                   cur_dur: "{{ state_attr(session_entity,'current_session_duration') | int(0) }}"
                   cur_avg: "{{ state_attr(session_entity,'current_session_average_flow') | float(0) | round(2) }}"
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: "High Water Usage ({{ cur_vol }} {{ unit }})"
                   message: >
@@ -376,7 +376,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: Water Valve Closed
                   message: >
@@ -392,7 +392,7 @@ automation:
                   elapsed_min: >
                     {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
                     {{ ((now().timestamp() - base)/60) | round(1) }}
-              - service: "{{ notify_service }}"
+              - action: "{{ notify_service }}"
                 data:
                   title: Leak Persists (Valve Off)
                   message: >

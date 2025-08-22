@@ -299,21 +299,28 @@ automation:
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
               - variables:
-                  notif_tag: "water_monitor_{{ trigger_entity | replace('.','_') }}"
-                  notif_title: >
-                    {% if synthetic_mode %}TEST Leak ({{ leak_type }}){% else %}Water Leak Detected ({{ leak_type }}){% endif %}
-                  notif_body: >
-                    {% if synthetic_mode %}Simulation mode active. {% endif %}
-                    {{ leak_type }} leak detected by {{ state_attr(trigger_entity,'friendly_name') }}.
-                    {% if leak_auto_shutoff_effective %}
-                      {% if leak_valve_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
-                    {% else %}
-                      {% if leak_valve_entity %}Valve still ON.{% endif %}
-                    {% endif %}
+                  notif_tag: "water_monitor_{{ trigger.entity_id | replace('.','_') }}"
+                  leak_name: >
+                    {% if trigger.entity_id.endswith('_low_flow_leak') %}Low Flow
+                    {% elif trigger.entity_id.endswith('_tank_refill_leak') %}Tank Refill
+                    {% elif trigger.entity_id.endswith('_intelligent_leak') %}Intelligent
+                    {% else %}Leak{% endif %}
+                  is_synthetic: "{{ is_state('sensor.water_monitor_synthetic_active','on') }}"
+                  valve_effective: "{{ trigger.to_state.attributes.get('auto_shutoff_effective', False) }}"
+                  valve_is_off: "{{ trigger.to_state.attributes.get('valve_off', False) }}"
+                  valve_entity_ref: "{{ trigger.to_state.attributes.get('auto_shutoff_valve_entity') or valve_entity or '' }}"
               - action: "{{ notify_service }}"
                 data:
-                  message: "{{ notif_body }}"
-                  title: "{{ notif_title }}"
+                  title: >
+                    {% if is_synthetic %}TEST Leak ({{ leak_name }}){% else %}Water Leak Detected ({{ leak_name }}){% endif %}
+                  message: >
+                    {% if is_synthetic %}Simulation mode active. {% endif %}
+                    {{ leak_name }} leak detected by {{ state_attr(trigger.entity_id,'friendly_name') }}.
+                    {% if valve_effective %}
+                      {% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
+                    {% else %}
+                      {% if valve_entity_ref %}Valve still ON.{% endif %}
+                    {% endif %}
                   data:
                     tag: "{{ notif_tag }}"
           - conditions: "{{ leak_turning_off }}"

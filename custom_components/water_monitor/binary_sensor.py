@@ -297,6 +297,14 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         """Return (valve_entity_id, valve_off, auto_shutoff_enabled, effective)."""
         ex = {**self._entry.data, **self._entry.options}
         valve = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        # Also check auto-discovered valve from domain data
+        if not valve:
+            try:
+                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                if isinstance(data, dict):
+                    valve = data.get("valve_entity_id") or ""
+            except Exception:
+                pass
         auto = bool(ex.get(CONF_INTEL_AUTO_SHUTOFF, False))
         data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
         valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
@@ -885,6 +893,14 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         # If turning on and auto-shutoff is enabled, request valve off
         ex = {**self._entry.data, **self._entry.options}
         valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        # Also check auto-discovered valve from domain data
+        if not valve_ent:
+            try:
+                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                if isinstance(data, dict):
+                    valve_ent = data.get("valve_entity_id") or ""
+            except Exception:
+                pass
         auto = bool(ex.get(CONF_LOW_FLOW_AUTO_SHUTOFF, False))
         effective = bool(valve_ent and auto)
         if not prev_on and self._attr_is_on and effective:
@@ -1133,6 +1149,14 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         # Read valve context
         ex = {**self._entry.data, **self._entry.options}
         valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        # Also check auto-discovered valve from domain data
+        if not valve_ent:
+            try:
+                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                if isinstance(data, dict):
+                    valve_ent = data.get("valve_entity_id") or ""
+            except Exception:
+                pass
         auto = bool(ex.get(CONF_TANK_LEAK_AUTO_SHUTOFF, False))
         effective = bool(valve_ent and auto)
         data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)

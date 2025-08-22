@@ -186,19 +186,6 @@ automation:
         {{ valve_state_entity != '' and trigger_entity == valve_state_entity and old_state in ['on','open'] and new_state in ['off','closed'] }}
       reminder_due: >
         {{ any_leak_sensor_on and (now().timestamp() - last_reminder_ts) / 60 >= (reminder_interval_min | int) and not snoozed }}
-  _actionable_actions: >
-        {% set show_actions = not synthetic_mode %}
-        {% set base = [
-         {'action':'WATER_SNOOZE','title':'Snooze'}
-         ] if show_actions and (leak_turning_on or reminder_due) else [] %}
-        {% set reopen = [{'action':'WATER_REOPEN','title':'Reopen Water'}]
-          if show_actions and leak_auto_shutoff_effective and leak_valve_off and (leak_turning_on or reminder_due) else [] %}
-        {% set shutoff = [{'action':'WATER_SHUTOFF','title':'Shut Off Water'}]
-          if show_actions and leak_turning_on and (not leak_auto_shutoff_effective) and leak_valve_entity else [] %}
-        {% set test_toggle = [
-          {'action':'WATER_UNMARK_TEST','title':'Mark Real'} if is_state('input_boolean.water_monitor_test_mode','on') else {'action':'WATER_MARK_TEST','title':'Mark Test'}
-          ] if synthetic_mode else [] %}
-        {{ base + reopen + shutoff + test_toggle }}
     trigger:
       # Leak state transitions only (ignore attribute churn):
       - platform: state

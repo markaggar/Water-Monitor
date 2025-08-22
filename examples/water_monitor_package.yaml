@@ -59,7 +59,6 @@ input_datetime:
     has_date: true
     has_time: true
   water_monitor_last_leak_reminder:
-                  notif_actions: "{{ _actionable_actions }}"
     has_date: true
     has_time: true
 

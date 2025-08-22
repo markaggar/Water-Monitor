@@ -5,6 +5,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, CONF_SENSOR_PREFIX, CONF_WATER_SHUTOFF_ENTITY, tracker_signal
@@ -144,7 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("[valve] Set valve_off=%s for entry %s", bool(off), entry.entry_id)
             # Always fire tracker signal so all leak sensors re-evaluate immediately
             try:
-                hass.helpers.dispatcher.async_dispatcher_send(tracker_signal(entry.entry_id), {})
+                async_dispatcher_send(hass, tracker_signal(entry.entry_id), {})
             except Exception as e:
                 _LOGGER.error("[valve] Error firing tracker signal: %s", e)
             if off:
@@ -162,7 +163,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Always set the explicit entity_id for synth flow if present, using the integration's prefix
                 try:
                     prefix = (entry.options.get("sensor_prefix") or entry.data.get("sensor_prefix") or entry.title or "water_monitor").lower().replace(" ", "_")
-                    entity_id = f"number.{prefix}_synth_synthetic_flow_gpm"
+                    entity_id = f"number.{prefix}_synthetic_flow_gpm"
                     await hass.services.async_call(
                         "number", "set_value", {"entity_id": entity_id, "value": 0}, blocking=False
                     )

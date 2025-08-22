@@ -7,9 +7,8 @@
 # Zero / minimal user edits expected:
 # - Adjust notification service if not `notify.mark`.
 # - Optionally tweak helper default values below.
-# (Former broad state_changed trigger removed; targeted triggers below are
-#  efficient for typical homes. Add more explicit entity_ids only if you have
-#  multiple integration instances.)
+# - For extremely large installs you may wish to scope the state_changed event
+#   trigger, but it is fine for typical homes.
 #
 # This package auto-discovers Water Monitor leak detectors, valve + context,
 # and session metrics. It sends actionable notifications, supports snooze,
@@ -59,6 +58,7 @@ input_datetime:
     has_date: true
     has_time: true
   water_monitor_last_leak_reminder:
+    name: Water Monitor Last Leak Reminder
     has_date: true
     has_time: true
 
@@ -116,18 +116,18 @@ automation:
     variables:
       valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
       notify_service: notify.mark  # EDIT ME if different
-      # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
-      # That means we cannot define leak/upstream/volume entity lists here and
-      # reference them in the triggers below via {{ variables }}. If you need to
-      # change which entities are used, edit the static entity_id lists inside
-      # the trigger section directly. For multi‑instance setups, duplicate the
-      # relevant trigger block and add the extra entity IDs.
-      # If you want a fully parameterized version, convert this into a Blueprint
-      # with inputs for leak sensors, upstream sensor(s), session sensors, and
-      # valve. (Happy to generate that — just ask.)
-      #
-      # notify_service above is used throughout with action: "{{ notify_service }}".
-      # Replace it with your mobile app notify.* or group notify target.
+  # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
+  # That means we cannot define leak/upstream/volume entity lists here and
+  # reference them in the triggers below via {{ variables }}. If you need to
+  # change which entities are used, edit the static entity_id lists inside
+  # the trigger section directly. For multi‑instance setups, duplicate the
+  # relevant trigger block and add the extra entity IDs.
+  # If you want a fully parameterized version, convert this into a Blueprint
+  # with inputs for leak sensors, upstream sensor(s), session sensors, and
+  # valve. (Happy to generate that — just ask.)
+  #
+  # notify_service above is used throughout with service: "{{ notify_service }}".
+  # Replace it with your mobile app notify.* or group notify target.
       # Derived (no edit needed)
       valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
       now_ts: "{{ now().timestamp() }}"
@@ -157,9 +157,9 @@ automation:
       is_last_session_entity: >
         {{ trigger_entity is match('sensor\\..*_last_session_volume$') }}
       leak_turning_on: >
-        {{ trigger.id == 'leak_on' }}
+        {{ is_leak_entity and old_state in ['off'] and new_state == 'on' }}
       leak_turning_off: >
-        {{ trigger.id == 'leak_off' }}
+        {{ is_leak_entity and old_state in ['on'] and new_state == 'off' }}
       upstream_down: >
         {{ is_upstream_entity and old_state in ['on'] and new_state == 'off' }}
       upstream_up: >
@@ -167,7 +167,7 @@ automation:
       last_session_volume: >
         {% if is_last_session_entity %}{{ trigger.to_state.state | float(0) }}{% else %}0{% endif %}
       high_session: >
-        {{ trigger.id == 'current_session_high' }}
+        {{ is_last_session_entity and (last_session_volume | float(0)) >= (large_threshold | float(0)) }}
       leak_auto_shutoff_effective: >
         {% if leak_turning_on or leak_turning_off %}
           {{ trigger.to_state.attributes.get('auto_shutoff_effective', False) }}
@@ -186,70 +186,50 @@ automation:
         {{ valve_state_entity != '' and trigger_entity == valve_state_entity and old_state in ['on','open'] and new_state in ['off','closed'] }}
       reminder_due: >
         {{ any_leak_sensor_on and (now().timestamp() - last_reminder_ts) / 60 >= (reminder_interval_min | int) and not snoozed }}
-      _actionable_actions: >
-        {% set show_actions = not synthetic_mode %}
-        {% set base = [
-         {'action':'WATER_SNOOZE','title':'Snooze'}
-         ] if show_actions and (leak_turning_on or reminder_due) else [] %}
-        {% set reopen = [{'action':'WATER_REOPEN','title':'Reopen Water'}]
-          if show_actions and leak_auto_shutoff_effective and leak_valve_off and (leak_turning_on or reminder_due) else [] %}
-        {% set shutoff = [{'action':'WATER_SHUTOFF','title':'Shut Off Water'}]
-          if show_actions and leak_turning_on and (not leak_auto_shutoff_effective) and leak_valve_entity else [] %}
-        {% set test_toggle = [
-          {'action':'WATER_UNMARK_TEST','title':'Mark Real'} if is_state('input_boolean.water_monitor_test_mode','on') else {'action':'WATER_MARK_TEST','title':'Mark Test'}
-          ] if synthetic_mode else [] %}
-        {{ base + reopen + shutoff + test_toggle }}
+      actionable_actions: >
+        {% set acts = [] %}
+        {% if leak_turning_on and not synthetic_mode %}
+          {% set _ = acts.append({'action':'WATER_SNOOZE','title':'Snooze'}) %}
+          {% if leak_auto_shutoff_effective and leak_valve_off %}
+            {% set _ = acts.append({'action':'WATER_REOPEN','title':'Reopen Water'}) %}
+          {% elif leak_auto_shutoff_effective and not leak_valve_off %}
+          {% elif not leak_auto_shutoff_effective and leak_valve_entity %}
+            {% set _ = acts.append({'action':'WATER_SHUTOFF','title':'Shut Off Water'}) %}
+          {% endif %}
+        {% elif reminder_due and not synthetic_mode %}
+          {% set _ = acts.append({'action':'WATER_SNOOZE','title':'Snooze'}) %}
+          {% if leak_auto_shutoff_effective and leak_valve_off %}
+            {% set _ = acts.append({'action':'WATER_REOPEN','title':'Reopen Water'}) %}
+          {% endif %}
+        {% endif %}
+        {% if synthetic_mode %}
+          {% if is_state('input_boolean.water_monitor_test_mode','on') %}
+            {% set _ = acts.append({'action':'WATER_UNMARK_TEST','title':'Mark Real'}) %}
+          {% else %}
+            {% set _ = acts.append({'action':'WATER_MARK_TEST','title':'Mark Test'}) %}
+          {% endif %}
+        {% endif %}
+        {{ acts }}
     trigger:
-      # Leak state transitions only (ignore attribute churn):
       - platform: state
-        id: leak_on
-        from: 'off'
-        to: 'on'
         entity_id:
-          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
       - platform: state
-        id: leak_off
-        from: 'on'
-        to: 'off'
         entity_id:
-          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_upstream_health
       - platform: state
-        id: upstream
         entity_id:
-          - binary_sensor.water_monitor_synth_upstream_health
-  # (Removed obsolete state-based current_session_high trigger referencing missing entity)
-      # High session trigger using template (fires once when threshold sustained 5s)
-      - platform: template
-        id: current_session_high
-        value_template: >-
-          {% set cur = state_attr('sensor.water_monitor_last_session_volume','current_session_volume') | float(0) %}
-          {% set threshold = states('input_number.water_monitor_large_session_volume') | float(25) %}
-          {{ cur >= threshold }}
-        for:
-          seconds: 5
+          - sensor.water_monitor_last_session_volume           # duplicate line per instance if multiple
       - platform: state
-        id: valve
         entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
       - platform: time_pattern
-        id: tick
         minutes: "/1"
       - platform: event
-        id: mobile_action
         event_type: mobile_app_notification_action
-    condition: []
+  condition: []
     action:
-      # Diagnostic logging to identify which trigger fires frequently.
-      - variables:
-          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
-          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
-      - service: system_log.write
-        data:
-          message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
-          level: info
       - choose:
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
@@ -263,7 +243,7 @@ automation:
                         data:
                           entity_id: input_datetime.water_monitor_snooze_until
                           datetime: "{{ (now() + timedelta(minutes=snooze_minutes|int)).strftime('%Y-%m-%d %H:%M:%S') }}"
-                      - action: "{{ notify_service }}"
+                      - service: "{{ notify_service }}"
                         data:
                           message: "Water alerts snoozed for {{ snooze_minutes }} minutes."
                   - conditions: "{{ mobile_action == 'WATER_REOPEN' and states(leak_valve_entity) in ['off','closed'] }}"
@@ -271,7 +251,7 @@ automation:
                       - service: homeassistant.turn_on
                         target:
                           entity_id: "{{ leak_valve_entity }}"
-                      - action: "{{ notify_service }}"
+                      - service: "{{ notify_service }}"
                         data:
                           message: "Reopening water ({{ leak_valve_entity }}) requested."
                   - conditions: "{{ mobile_action == 'WATER_SHUTOFF' and leak_valve_entity != '' and states(leak_valve_entity) in ['on','open'] }}"
@@ -279,7 +259,7 @@ automation:
                       - service: homeassistant.turn_off
                         target:
                           entity_id: "{{ leak_valve_entity }}"
-                      - action: "{{ notify_service }}"
+                      - service: "{{ notify_service }}"
                         data:
                           message: "Shutting off water ({{ leak_valve_entity }}) requested."
                   - conditions: "{{ mobile_action == 'WATER_MARK_TEST' }}"
@@ -299,55 +279,32 @@ automation:
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
               - variables:
-                  notif_tag: "water_monitor_{{ trigger.entity_id | replace('.','_') }}"
-                  leak_name: >
-                    {% if trigger.entity_id.endswith('_low_flow_leak') %}Low Flow
-                    {% elif trigger.entity_id.endswith('_tank_refill_leak') %}Tank Refill
-                    {% elif trigger.entity_id.endswith('_intelligent_leak') %}Intelligent
-                    {% else %}Leak{% endif %}
-                  is_synthetic: "{{ is_state('sensor.water_monitor_synthetic_active','on') }}"
-                  valve_effective: "{{ trigger.to_state.attributes.get('auto_shutoff_effective', False) }}"
-                  valve_is_off: "{{ trigger.to_state.attributes.get('valve_off', False) }}"
-                  valve_entity_ref: "{{ trigger.to_state.attributes.get('auto_shutoff_valve_entity') or valve_entity or '' }}"
-                  # Build dynamic action list
-                  actions_list: >
-                    {% set actions = [] %}
-                    {% if not is_synthetic %}
-                      {% set actions = actions + [{'action': 'WATER_SNOOZE', 'title': 'Snooze'}] %}
-                    {% endif %}
-                    {% if valve_effective and valve_is_off %}
-                      {% set actions = actions + [{'action': 'WATER_REOPEN', 'title': 'Reopen Water'}] %}
-                    {% endif %}
-                    {% if not valve_effective and valve_entity_ref %}
-                      {% set actions = actions + [{'action': 'WATER_SHUTOFF', 'title': 'Shut Off Water'}] %}
-                    {% endif %}
-                    {% if is_state('input_boolean.water_monitor_test_mode', 'on') %}
-                      {% set actions = actions + [{'action': 'WATER_UNMARK_TEST', 'title': 'Mark Real'}] %}
+                  notif_tag: "water_monitor_{{ trigger_entity | replace('.','_') }}"
+                  notif_title: >
+                    {% if synthetic_mode %}TEST Leak ({{ leak_type }}){% else %}Water Leak Detected ({{ leak_type }}){% endif %}
+                  notif_body: >
+                    {% if synthetic_mode %}Simulation mode active. {% endif %}
+                    {{ leak_type }} leak detected by {{ state_attr(trigger_entity,'friendly_name') }}.
+                    {% if leak_auto_shutoff_effective %}
+                      {% if leak_valve_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
                     {% else %}
-                      {% set actions = actions + [{'action': 'WATER_MARK_TEST', 'title': 'Mark Test'}] %}
+                      {% if leak_valve_entity %}Valve still ON.{% endif %}
                     {% endif %}
-                    {{ actions }}
-              - action: "{{ notify_service }}"
+                  notif_actions: "{{ actionable_actions }}"
+              - service: "{{ notify_service }}"
                 data:
-                  title: >
-                    {% if is_synthetic %}TEST Leak ({{ leak_name }}){% else %}Water Leak Detected ({{ leak_name }}){% endif %}
-                  message: >
-                    {% if is_synthetic %}Simulation mode active. {% endif %}
-                    {{ leak_name }} leak detected by {{ state_attr(trigger.entity_id,'friendly_name') }}.
-                    {% if valve_effective %}
-                      {% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
-                    {% else %}
-                      {% if valve_entity_ref %}Valve still ON.{% endif %}
-                    {% endif %}
+                  message: "{{ notif_body }}"
+                  title: "{{ notif_title }}"
                   data:
                     tag: "{{ notif_tag }}"
-                    actions: "{{ actions_list }}"
+                    actions: >
+                      {{ notif_actions }}
           - conditions: "{{ leak_turning_off }}"
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - action: "{{ notify_service }}"
+              - service: "{{ notify_service }}"
                 data:
                   title: "Leak Cleared ({{ leak_type }})"
                   message: >
@@ -365,7 +322,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - action: "{{ notify_service }}"
+              - service: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Issue
                   message: >
@@ -375,7 +332,7 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - action: "{{ notify_service }}"
+              - service: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Restored
                   message: >
@@ -386,28 +343,29 @@ automation:
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
               - variables:
-                  session_entity: sensor.water_monitor_last_session_volume
                   unit: >
-                    {{ state_attr(session_entity,'volume_unit') or 'units' }}
-                  cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
-                  cur_dur: "{{ state_attr(session_entity,'current_session_duration') | int(0) }}"
-                  cur_avg: "{{ state_attr(session_entity,'current_session_average_flow') | float(0) | round(2) }}"
-                  high_usage_actions: >
-                    {{ [{'action': 'WATER_SNOOZE', 'title': 'Snooze'}] }}
-              - action: "{{ notify_service }}"
+                    {{ state_attr(trigger_entity,'volume_unit') or 'units' }}
+                  vol: "{{ last_session_volume | round(2) }}"
+                  dur: "{{ state_attr(trigger_entity,'last_session_duration') | int(0) }}"
+                  avg: "{{ state_attr(trigger_entity,'last_session_average_flow') | float(0) | round(2) }}"
+                  hot: >
+                    {% set h = state_attr(trigger_entity,'last_session_hot_water_pct') %}
+                    {{ (h ~ '%') if h not in (none,'unknown') else 'n/a' }}
+                  cur_vol: "{{ state_attr(trigger_entity,'current_session_volume') | float(0) | round(2) }}"
+                  cur_dur: "{{ state_attr(trigger_entity,'current_session_duration') | int(0) }}"
+                  cur_avg: "{{ state_attr(trigger_entity,'current_session_average_flow') | float(0) | round(2) }}"
+              - service: "{{ notify_service }}"
                 data:
-                  title: "High Water Usage ({{ cur_vol }} {{ unit }})"
+                  title: "High Water Usage ({{ vol }} {{ unit }})"
                   message: >
-                    Current session now at {{ cur_vol }} {{ unit }} over {{ cur_dur }}s (avg {{ cur_avg }} {{ unit }}/min). Threshold crossed.
-                  data:
-                    actions: "{{ high_usage_actions }}"
+                    Last session: {{ vol }} {{ unit }} over {{ dur }}s (avg {{ avg }} {{ unit }}/min; hot {{ hot }}). Current snapshot: {{ cur_vol }} {{ unit }} {{ cur_dur }}s (avg {{ cur_avg }}).
           - conditions: >
               {{ valve_closed_event and not leak_turning_on }}
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
-              - action: "{{ notify_service }}"
+              - service: "{{ notify_service }}"
                 data:
                   title: Water Valve Closed
                   message: >
@@ -423,21 +381,16 @@ automation:
                   elapsed_min: >
                     {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
                     {{ ((now().timestamp() - base)/60) | round(1) }}
-                  # Reminder actions: snooze and reopen if valve available
-                  reminder_actions: >
-                    {% set actions = [{'action': 'WATER_SNOOZE', 'title': 'Snooze'}] %}
-                    {% if valve_state_entity and states(valve_state_entity) in ['off','closed'] %}
-                      {% set actions = actions + [{'action': 'WATER_REOPEN', 'title': 'Reopen Water'}] %}
-                    {% endif %}
-                    {{ actions }}
-              - action: "{{ notify_service }}"
+                  notif_actions: "{{ actionable_actions }}"
+              - service: "{{ notify_service }}"
                 data:
                   title: Leak Persists (Valve Off)
                   message: >
                     Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
                   data:
                     tag: "{{ notif_tag }}"
-                    actions: "{{ reminder_actions }}"
+                    actions: >
+                      {{ notif_actions }}
               - service: input_datetime.set_datetime
                 data:
                   entity_id: input_datetime.water_monitor_last_leak_reminder

@@ -1,0 +1,415 @@
+1:###############################################################################
+2:# Water Monitor Automation Package (Example)
+3:#
+4:# Drop this file (rename if desired) into your Home Assistant `packages/` folder
+5:# and ensure `homeassistant: packages: !include_dir_named packages` is enabled.
+6:#
+7:# Zero / minimal user edits expected:
+8:# - Adjust notification service if not `notify.mark`.
+9:# - Optionally tweak helper default values below.
+10:# (Former broad state_changed trigger removed; targeted triggers below are
+11:#  efficient for typical homes. Add more explicit entity_ids only if you have
+12:#  multiple integration instances.)
+13:#
+14:# This package auto-discovers Water Monitor leak detectors, valve + context,
+15:# and session metrics. It sends actionable notifications, supports snooze,
+16:# synthetic/test mode handling, valve reminders, high-usage alerts, and
+17:# upstream health degradation notices.
+18:###############################################################################
+19:
+20:#############################
+21:# Helpers (user adjustable) #
+22:#############################
+23:input_boolean:
+24:  water_monitor_notifications_enabled:
+25:    name: Water Monitor Notifications Enabled
+26:    icon: mdi:bell
+27:    initial: true
+28:  water_monitor_test_mode:
+29:    name: Water Monitor Test Mode
+30:    icon: mdi:flask
+31:    initial: false
+32:
+33:input_number:
+34:  water_monitor_large_session_volume:
+35:    name: Water Monitor Large Session Volume (gal)
+36:    min: 1
+37:    max: 1000
+38:    step: 1
+39:    mode: box
+40:    initial: 25
+41:  water_monitor_valve_reminder_interval:
+42:    name: Water Monitor Valve Reminder Interval (min)
+43:    min: 1
+44:    max: 180
+45:    step: 1
+46:    mode: box
+47:    initial: 10
+48:  water_monitor_snooze_minutes:
+49:    name: Water Monitor Snooze Minutes
+50:    min: 5
+51:    max: 240
+52:    step: 5
+53:    mode: box
+54:    initial: 30
+55:
+56:input_datetime:
+57:  water_monitor_snooze_until:
+58:    name: Water Monitor Snooze Until
+59:    has_date: true
+60:    has_time: true
+61:  water_monitor_last_leak_reminder:
+62:    has_date: true
+63:    has_time: true
+64:
+65:###############################
+66:# Template Sensors (optional) #
+67:###############################
+68:template:
+69:  - trigger: []  # purely template-based
+70:    sensor:
+71:      - name: Water Monitor Any Leak Active
+72:        unique_id: water_monitor_any_leak_active
+73:        state: >
+74:          {% set leaks = states.binary_sensor | selectattr('state','eq','on')
+75:              | selectattr('attributes.device_class','defined')
+76:              | selectattr('attributes.device_class','eq','problem')
+77:              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+78:          {{ 'on' if leaks|length > 0 else 'off' }}
+79:        attributes:
+80:          active_leaks: >
+81:            {% set leaks = states.binary_sensor | selectattr('state','eq','on')
+82:                | selectattr('attributes.device_class','defined')
+83:                | selectattr('attributes.device_class','eq','problem')
+84:                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+85:            {{ leaks | map(attribute='entity_id') | list }}
+86:      - name: Water Monitor Synthetic Active
+87:        unique_id: water_monitor_synthetic_active
+88:        state: >
+89:          {# Heuristic: explicit test mode OR synthetic flow number > 0 #}
+90:          {% set test_mode = is_state('input_boolean.water_monitor_test_mode','on') %}
+91:          {% set synth_numbers = states.number | selectattr('entity_id','search','_synthetic_flow_gpm') | list %}
+92:          {% set synth_flow = (synth_numbers[0].state | float(0)) if synth_numbers|length > 0 else 0 %}
+93:          {% set active = test_mode or synth_flow > 0 %}
+94:          {{ 'on' if active else 'off' }}
+95:
+96:#############################################
+97:# Core Automation: Water Monitor Orchestrator
+98:#
+99:# Option B (targeted triggers): Replaces the prior broad state_changed event
+100:# trigger. Focused state triggers (wildcards) for Water Monitor entities,
+101:# plus explicit valve + periodic tick + mobile actions, cut invocation
+102:# frequency massively (only on relevant entity changes) while still
+103:# dynamically discovering new leak/health/session sensors via globs.
+104:#
+105:# Edit points (search for EDIT ME):
+106:#   1. valve_entity variable (if you have a shutoff valve)
+107:#   2. notify_service if not notify.mark
+108:# If you have multiple valves, add additional valve entity IDs to the
+109:# valve state trigger block.
+110:#############################################
+111:automation:
+112:  - id: water_monitor_orchestrator
+113:    alias: Water Monitor Orchestrator
+114:    mode: restart
+115:    description: Unified leak, valve, high usage, reminders, and upstream health notifications.
+116:    variables:
+117:      valve_entity: ""  # EDIT ME: e.g. switch.main_water_valve or valve.main_water
+118:      notify_service: notify.mark  # EDIT ME if different
+119:      # NOTE: Home Assistant does NOT allow templating the trigger entity_id list.
+120:      # That means we cannot define leak/upstream/volume entity lists here and
+121:      # reference them in the triggers below via {{ variables }}. If you need to
+122:      # change which entities are used, edit the static entity_id lists inside
+123:      # the trigger section directly. For multi‑instance setups, duplicate the
+124:      # relevant trigger block and add the extra entity IDs.
+125:      # If you want a fully parameterized version, convert this into a Blueprint
+126:      # with inputs for leak sensors, upstream sensor(s), session sensors, and
+127:      # valve. (Happy to generate that — just ask.)
+128:      #
+129:      # notify_service above is used throughout with service: "{{ notify_service }}".
+130:      # Replace it with your mobile app notify.* or group notify target.
+131:      # Derived (no edit needed)
+132:  valve_state_entity: "{{ valve_entity if valve_entity != '' else 'input_boolean.water_monitor_notifications_enabled' }}"
+133:  now_ts: "{{ now().timestamp() }}"
+134:      snooze_until: >
+135:        {% set dt = states('input_datetime.water_monitor_snooze_until') %}
+136:        {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}
+137:      snoozed: "{{ now().timestamp() < snooze_until }}"
+138:      large_threshold: "{{ states('input_number.water_monitor_large_session_volume') | float(25) }}"
+139:      reminder_interval_min: "{{ states('input_number.water_monitor_valve_reminder_interval') | int(10) }}"
+140:      snooze_minutes: "{{ states('input_number.water_monitor_snooze_minutes') | int(30) }}"
+141:      last_reminder_ts: >
+142:        {% set dt = states('input_datetime.water_monitor_last_leak_reminder') %}
+143:        {% if dt in ('unknown','unavailable','') %}0{% else %}{{ as_timestamp(strptime(dt, '%Y-%m-%d %H:%M:%S')) }}{% endif %}
+144:      any_leak_sensor_on: "{{ is_state('sensor.water_monitor_any_leak_active','on') }}"
+145:      synthetic_mode: "{{ is_state('sensor.water_monitor_synthetic_active','on') }}"
+146:      trigger_is_state_change: "{{ trigger.platform == 'state' }}"
+147:      trigger_entity: >
+148:        {{ trigger.entity_id if trigger_is_state_change else '' }}
+149:      old_state: >
+150:        {{ trigger.from_state.state if trigger_is_state_change and trigger.from_state is not none else '' }}
+151:      new_state: >
+152:        {{ trigger.to_state.state if trigger_is_state_change and trigger.to_state is not none else '' }}
+153:      is_leak_entity: >
+154:        {{ trigger_entity is match('binary_sensor\\..*_(low_flow_leak|tank_refill_leak|intelligent_leak)$') }}
+155:      is_upstream_entity: >
+156:        {{ trigger_entity is match('binary_sensor\\..*_upstream_health$') }}
+157:      is_last_session_entity: >
+158:        {{ trigger_entity is match('sensor\\..*_last_session_volume$') }}
+159:      leak_turning_on: >
+160:        {{ trigger.id == 'leak_on' }}
+161:      leak_turning_off: >
+162:        {{ trigger.id == 'leak_off' }}
+163:      upstream_down: >
+164:        {{ is_upstream_entity and old_state in ['on'] and new_state == 'off' }}
+165:      upstream_up: >
+166:        {{ is_upstream_entity and old_state in ['off'] and new_state == 'on' }}
+167:      last_session_volume: >
+168:        {% if is_last_session_entity %}{{ trigger.to_state.state | float(0) }}{% else %}0{% endif %}
+169:      high_session: >
+170:        {{ trigger.id == 'current_session_high' }}
+171:      leak_auto_shutoff_effective: >
+172:        {% if leak_turning_on or leak_turning_off %}
+173:          {{ trigger.to_state.attributes.get('auto_shutoff_effective', False) }}
+174:        {% else %}False{% endif %}
+175:      leak_valve_entity: >
+176:        {% if leak_turning_on or leak_turning_off %}
+177:          {{ trigger.to_state.attributes.get('auto_shutoff_valve_entity') or valve_state_entity or '' }}
+178:        {% else %}{{ valve_state_entity or '' }}{% endif %}
+179:      leak_valve_off: >
+180:        {% if leak_turning_on or leak_turning_off %}
+181:          {{ trigger.to_state.attributes.get('valve_off', False) }}
+182:        {% else %}False{% endif %}
+183:      leak_type: >
+184:        {% if is_leak_entity %}{% if trigger_entity.endswith('_low_flow_leak') %}Low Flow{% elif trigger_entity.endswith('_tank_refill_leak') %}Tank Refill{% elif trigger_entity.endswith('_intelligent_leak') %}Intelligent{% else %}Leak{% endif %}{% else %}''{% endif %}
+185:      valve_closed_event: >
+186:        {{ valve_state_entity != '' and trigger_entity == valve_state_entity and old_state in ['on','open'] and new_state in ['off','closed'] }}
+187:      reminder_due: >
+188:        {{ any_leak_sensor_on and (now().timestamp() - last_reminder_ts) / 60 >= (reminder_interval_min | int) and not snoozed }}
+189:      _actionable_actions: >
+190:        {% set show_actions = not synthetic_mode %}
+191:        {% set base = [
+192:         {'action':'WATER_SNOOZE','title':'Snooze'}
+193:         ] if show_actions and (leak_turning_on or reminder_due) else [] %}
+194:        {% set reopen = [{'action':'WATER_REOPEN','title':'Reopen Water'}]
+195:          if show_actions and leak_auto_shutoff_effective and leak_valve_off and (leak_turning_on or reminder_due) else [] %}
+196:        {% set shutoff = [{'action':'WATER_SHUTOFF','title':'Shut Off Water'}]
+197:          if show_actions and leak_turning_on and (not leak_auto_shutoff_effective) and leak_valve_entity else [] %}
+198:        {% set test_toggle = [
+199:          {'action':'WATER_UNMARK_TEST','title':'Mark Real'} if is_state('input_boolean.water_monitor_test_mode','on') else {'action':'WATER_MARK_TEST','title':'Mark Test'}
+200:          ] if synthetic_mode else [] %}
+201:        {{ base + reopen + shutoff + test_toggle }}
+202:    trigger:
+203:      # Leak state transitions only (ignore attribute churn):
+204:      - platform: state
+205:        id: leak_on
+206:        from: 'off'
+207:        to: 'on'
+208:        entity_id:
+209:          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
+210:          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
+211:          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+212:      - platform: state
+213:        id: leak_off
+214:        from: 'on'
+215:        to: 'off'
+216:        entity_id:
+217:          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
+218:          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
+219:          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+220:      - platform: state
+221:        id: upstream
+222:        entity_id:
+223:          - binary_sensor.water_monitor_synth_upstream_health
+224:      - platform: state
+225:        id: current_session_high
+226:        from: 'off'
+227:        to: 'on'
+228:      entity_id: binary_sensor.water_monitor_synth_current_session_high
+229:      # High session trigger using template (fires once when threshold sustained 5s)
+230:      - platform: template
+231:        id: current_session_high
+232:        value_template: >-
+233:          {% set cur = state_attr('sensor.water_monitor_last_session_volume','current_session_volume') | float(0) %}
+234:          {{ cur >= (large_threshold | float(25)) }}
+235:        for:
+236:          seconds: 5
+237:      - platform: state
+238:        id: valve
+239:        entity_id: input_boolean.water_monitor_notifications_enabled  # dummy valve fallback; replace with your valve entity if set
+240:      - platform: time_pattern
+241:        id: tick
+242:        minutes: "/1"
+243:      - platform: event
+244:        id: mobile_action
+245:        event_type: mobile_app_notification_action
+246:    condition: []
+247:    action:
+248:      # Diagnostic logging to identify which trigger fires frequently.
+249:      - variables:
+250:          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
+251:          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
+252:      - service: system_log.write
+253:        data:
+254:          message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
+255:          level: info
+256:      - choose:
+257:          - conditions: >
+258:              {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}
+259:            sequence:
+260:              - variables:
+261:                  mobile_action: "{{ trigger.event.data.action }}"
+262:              - choose:
+263:                  - conditions: "{{ mobile_action == 'WATER_SNOOZE' }}"
+264:                    sequence:
+265:                      - service: input_datetime.set_datetime
+266:                        data:
+267:                          entity_id: input_datetime.water_monitor_snooze_until
+268:                          datetime: "{{ (now() + timedelta(minutes=snooze_minutes|int)).strftime('%Y-%m-%d %H:%M:%S') }}"
+269:                      - service: "{{ notify_service }}"
+270:                        data:
+271:                          message: "Water alerts snoozed for {{ snooze_minutes }} minutes."
+272:                  - conditions: "{{ mobile_action == 'WATER_REOPEN' and states(leak_valve_entity) in ['off','closed'] }}"
+273:                    sequence:
+274:                      - service: homeassistant.turn_on
+275:                        target:
+276:                          entity_id: "{{ leak_valve_entity }}"
+277:                      - service: "{{ notify_service }}"
+278:                        data:
+279:                          message: "Reopening water ({{ leak_valve_entity }}) requested."
+280:                  - conditions: "{{ mobile_action == 'WATER_SHUTOFF' and leak_valve_entity != '' and states(leak_valve_entity) in ['on','open'] }}"
+281:                    sequence:
+282:                      - service: homeassistant.turn_off
+283:                        target:
+284:                          entity_id: "{{ leak_valve_entity }}"
+285:                      - service: "{{ notify_service }}"
+286:                        data:
+287:                          message: "Shutting off water ({{ leak_valve_entity }}) requested."
+288:                  - conditions: "{{ mobile_action == 'WATER_MARK_TEST' }}"
+289:                    sequence:
+290:                      - service: input_boolean.turn_on
+291:                        target:
+292:                          entity_id: input_boolean.water_monitor_test_mode
+293:                  - conditions: "{{ mobile_action == 'WATER_UNMARK_TEST' }}"
+294:                    sequence:
+295:                      - service: input_boolean.turn_off
+296:                        target:
+297:                          entity_id: input_boolean.water_monitor_test_mode
+298:              - stop: "Handled mobile action"
+299:          - conditions: "{{ leak_turning_on }}"
+300:            sequence:
+301:              - condition: state
+302:                entity_id: input_boolean.water_monitor_notifications_enabled
+303:                state: 'on'
+304:              - variables:
+305:                  notif_tag: "water_monitor_{{ trigger_entity | replace('.','_') }}"
+306:                  notif_title: >
+307:                    {% if synthetic_mode %}TEST Leak ({{ leak_type }}){% else %}Water Leak Detected ({{ leak_type }}){% endif %}
+308:                  notif_body: >
+309:                    {% if synthetic_mode %}Simulation mode active. {% endif %}
+310:                    {{ leak_type }} leak detected by {{ state_attr(trigger_entity,'friendly_name') }}.
+311:                    {% if leak_auto_shutoff_effective %}
+312:                      {% if leak_valve_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}
+313:                    {% else %}
+314:                      {% if leak_valve_entity %}Valve still ON.{% endif %}
+315:                    {% endif %}
+316:              - service: "{{ notify_service }}"
+317:                data:
+318:                  message: "{{ notif_body }}"
+319:                  title: "{{ notif_title }}"
+320:                  data:
+321:                    tag: "{{ notif_tag }}"
+322:          - conditions: "{{ leak_turning_off }}"
+323:            sequence:
+324:              - condition: state
+325:                entity_id: input_boolean.water_monitor_notifications_enabled
+326:                state: 'on'
+327:              - service: "{{ notify_service }}"
+328:                data:
+329:                  title: "Leak Cleared ({{ leak_type }})"
+330:                  message: >
+331:                    {{ leak_type }} leak cleared: {{ state_attr(trigger_entity,'friendly_name') }}.
+332:              - service: input_datetime.set_datetime
+333:                data:
+334:                  entity_id: input_datetime.water_monitor_last_leak_reminder
+335:                  datetime: "1970-01-01 00:00:00"
+336:              - service: input_datetime.set_datetime
+337:                data:
+338:                  entity_id: input_datetime.water_monitor_snooze_until
+339:                  datetime: "1970-01-01 00:00:00"
+340:          - conditions: "{{ upstream_down }}"
+341:            sequence:
+342:              - condition: state
+343:                entity_id: input_boolean.water_monitor_notifications_enabled
+344:                state: 'on'
+345:              - service: "{{ notify_service }}"
+346:                data:
+347:                  title: Water Monitor Upstream Issue
+348:                  message: >
+349:                    Upstream sensors degraded: {{ trigger_entity }}. Leak monitoring may be impaired.
+350:          - conditions: "{{ upstream_up }}"
+351:            sequence:
+352:              - condition: state
+353:                entity_id: input_boolean.water_monitor_notifications_enabled
+354:                state: 'on'
+355:              - service: "{{ notify_service }}"
+356:                data:
+357:                  title: Water Monitor Upstream Restored
+358:                  message: >
+359:                    Upstream sensors restored: {{ trigger_entity }}.
+360:          - conditions: "{{ high_session }}"
+361:            sequence:
+362:              - condition: state
+363:                entity_id: input_boolean.water_monitor_notifications_enabled
+364:                state: 'on'
+365:              - variables:
+366:                  session_entity: sensor.water_monitor_last_session_volume
+367:                  unit: >
+368:                    {{ state_attr(session_entity,'volume_unit') or 'units' }}
+369:                  cur_vol: "{{ state_attr(session_entity,'current_session_volume') | float(0) | round(2) }}"
+370:                  cur_dur: "{{ state_attr(session_entity,'current_session_duration') | int(0) }}"
+371:                  cur_avg: "{{ state_attr(session_entity,'current_session_average_flow') | float(0) | round(2) }}"
+372:              - service: "{{ notify_service }}"
+373:                data:
+374:                  title: "High Water Usage ({{ cur_vol }} {{ unit }})"
+375:                  message: >
+376:                    Current session now at {{ cur_vol }} {{ unit }} over {{ cur_dur }}s (avg {{ cur_avg }} {{ unit }}/min). Threshold crossed.
+377:          - conditions: >
+378:              {{ valve_closed_event and not leak_turning_on }}
+379:            sequence:
+380:              - condition: state
+381:                entity_id: input_boolean.water_monitor_notifications_enabled
+382:                state: 'on'
+383:              - service: "{{ notify_service }}"
+384:                data:
+385:                  title: Water Valve Closed
+386:                  message: >
+387:                    Valve {{ leak_valve_entity }} closed.
+388:      - conditions: >
+389:        {{ trigger.platform == 'time_pattern' and reminder_due and not synthetic_mode }}
+390:            sequence:
+391:              - condition: state
+392:                entity_id: input_boolean.water_monitor_notifications_enabled
+393:                state: 'on'
+394:              - variables:
+395:                  notif_tag: water_monitor_reminder
+396:                  elapsed_min: >
+397:                    {% set base = last_reminder_ts if last_reminder_ts > 0 else ( now().timestamp() - (reminder_interval_min|int)*60 ) %}
+398:                    {{ ((now().timestamp() - base)/60) | round(1) }}
+399:              - service: "{{ notify_service }}"
+400:                data:
+401:                  title: Leak Persists (Valve Off)
+402:                  message: >
+403:                    Leak still active. Valve isolated. Elapsed ~{{ elapsed_min }} min.
+404:                  data:
+405:                    tag: "{{ notif_tag }}"
+406:              - service: input_datetime.set_datetime
+407:                data:
+408:                  entity_id: input_datetime.water_monitor_last_leak_reminder
+409:                  datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+410:        default: []
+411:      - stop: Done
+412:
+413:###############################################################################
+414:# End of package
+415:###############################################################################

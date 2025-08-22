@@ -328,3 +328,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data.pop("services_registered", None)
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up storage when config entry is permanently deleted."""
+    try:
+        # Import here to avoid linting issues in development environment
+        from homeassistant.helpers.storage import Store  # type: ignore
+        store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_engine.json")
+        await store.async_remove()
+        _LOGGER.info("Cleaned up storage file for removed entry: %s", entry.entry_id)
+    except Exception as e:
+        _LOGGER.warning("Failed to clean up storage file for entry %s: %s", entry.entry_id, e)

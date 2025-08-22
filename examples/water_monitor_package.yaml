@@ -348,7 +348,7 @@ automation:
                       {% set events = trigger.to_state.attributes.get('contributing_events', []) %}
                       {{ similar_count }} similar bursts in {{ window_min }} minutes:
                       {% for event in events[:4] -%}
-                      • {{ event.local_time or 'unknown' }}: {{ event.volume }} gal, {{ event.duration_s }}s{% if not loop.last %}  {% endif %}
+                      • {{ event.local_time or 'unknown' }}: {{ (event.volume | float) | round(2) }} gal, {{ event.duration_s }}s{% if not loop.last %}  {% endif %}
                       {%- endfor %}
                       {% if events | length > 4 %}(+{{ events | length - 4 }} more){% endif %}
                       {% if valve_effective %}{% if valve_is_off %}Valve is OFF.{% else %}Valve shutting off...{% endif %}{% endif %}
@@ -385,7 +385,7 @@ automation:
                       {% set timeout_min = (trigger.to_state.attributes.get('timeout_cleared_s', 0) / 60) | round(0) %}
                       No similar patterns for {{ timeout_min }} minutes
                       {% set last_event = trigger.to_state.attributes.get('contributing_events', []) | last %}
-                      {% if last_event %}Last: {{ last_event.volume }} gal, {{ last_event.duration_s }}s at {{ last_event.local_time }}{% endif %}
+                      {% if last_event %}Last: {{ (last_event.volume | float) | round(2) }} gal, {{ last_event.duration_s }}s at {{ last_event.local_time }}{% endif %}
                     {% elif trigger.entity_id.endswith('_intelligent_leak') %}
                       ✅ {{ leak_type }} Cleared • {{ clear_time }}
                       Usage pattern returned to normal

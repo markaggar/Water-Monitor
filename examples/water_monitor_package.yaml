@@ -89,10 +89,45 @@ sensor:
         unique_id: water_monitor_synthetic_active
         value_template: >
           {% set test_mode = is_state('input_boolean.water_monitor_test_mode','on') %}
-          {{ 'on' if test_mode else 'off' }}
+          {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+              | selectattr('attributes.device_class','defined')
+              | selectattr('attributes.device_class','eq','problem')
+              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+          {% set synthetic_active = namespace(found=false) %}
+          {% for leak in active_leaks %}
+            {% if leak.attributes.synthetic_flow_at_trigger is defined and leak.attributes.synthetic_flow_at_trigger > 0 %}
+              {% set synthetic_active.found = true %}
+            {% endif %}
+          {% endfor %}
+          {% set active = test_mode or synthetic_active.found %}
+          {{ 'on' if active else 'off' }}
         attribute_templates:
           test_mode_active: >
             {{ is_state('input_boolean.water_monitor_test_mode','on') }}
+          active_synthetic_leaks: >
+            {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+                | selectattr('attributes.device_class','defined')
+                | selectattr('attributes.device_class','eq','problem')
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+            {% set synthetic_leaks = [] %}
+            {% for leak in active_leaks %}
+              {% if leak.attributes.synthetic_flow_at_trigger is defined and leak.attributes.synthetic_flow_at_trigger > 0 %}
+                {% set synthetic_leaks = synthetic_leaks + [leak.entity_id] %}
+              {% endif %}
+            {% endfor %}
+            {{ synthetic_leaks }}
+          synthetic_flow_values: >
+            {% set active_leaks = states.binary_sensor | selectattr('state','eq','on')
+                | selectattr('attributes.device_class','defined')
+                | selectattr('attributes.device_class','eq','problem')
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+            {% set synthetic_data = {} %}
+            {% for leak in active_leaks %}
+              {% if leak.attributes.synthetic_flow_at_trigger is defined %}
+                {% set _ = synthetic_data.update({leak.entity_id: leak.attributes.synthetic_flow_at_trigger}) %}
+              {% endif %}
+            {% endfor %}
+            {{ synthetic_data }}
 
 #############################################
 # Core Automation: Water Monitor Orchestrator

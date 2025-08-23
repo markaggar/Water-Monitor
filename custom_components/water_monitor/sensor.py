@@ -205,6 +205,7 @@ class WaterSessionSensor(SensorEntity):
         self._integrated_session_volume = 0.0
         self._last_integration_ts = None
         self._prev_flow_for_integration = 0.0
+        self._prev_synth_flow_for_integration = 0.0
 
         # Track entities we're listening to
         if self._calc_volume_from_flow:
@@ -492,11 +493,14 @@ class WaterSessionSensor(SensorEntity):
                 # Flow integration path
                 if will_start:
                     self._integrated_session_volume = 0.0
+                    self._synthetic_volume_added = 0.0
                     self._last_integration_ts = current_time
-                    self._prev_flow_for_integration = engine_flow
+                    self._prev_flow_for_integration = effective_flow
+                    self._prev_synth_flow_for_integration = synthetic if self._include_synth_in_engine else 0.0
                 if self._last_integration_ts is None:
                     self._last_integration_ts = current_time
-                    self._prev_flow_for_integration = engine_flow
+                    self._prev_flow_for_integration = effective_flow
+                    self._prev_synth_flow_for_integration = synthetic if self._include_synth_in_engine else 0.0
                 else:
                     dt = (current_time - self._last_integration_ts).total_seconds()
                     if dt < 0:
@@ -504,14 +508,23 @@ class WaterSessionSensor(SensorEntity):
                     if dt > 10:
                         dt = 10
                     if self._integration_method == INTEGRATION_METHOD_TRAPEZOIDAL:
-                        dV = ((self._prev_flow_for_integration + engine_flow) / 2.0) * (dt / 60.0)
+                        dV = ((self._prev_flow_for_integration + effective_flow) / 2.0) * (dt / 60.0)
+                        dV_synth = 0.0
+                        if self._include_synth_in_engine:
+                            dV_synth = ((self._prev_synth_flow_for_integration + synthetic) / 2.0) * (dt / 60.0)
                     else:
                         dV = (self._prev_flow_for_integration) * (dt / 60.0)
+                        dV_synth = 0.0
+                        if self._include_synth_in_engine:
+                            dV_synth = (self._prev_synth_flow_for_integration) * (dt / 60.0)
                     if dV > 0:
                         self._integrated_session_volume += max(0.0, dV)
+                    if self._include_synth_in_engine and dV_synth > 0:
+                        self._synthetic_volume_added += max(0.0, dV_synth)
                     self._last_integration_ts = current_time
-                    self._prev_flow_for_integration = engine_flow
-                adjusted_volume_total = max(0.0, self._integrated_session_volume)
+                    self._prev_flow_for_integration = effective_flow
+                    self._prev_synth_flow_for_integration = synthetic if self._include_synth_in_engine else 0.0
+                adjusted_volume_total = max(0.0, self._integrated_session_volume + self._synthetic_volume_added)
 
             # Update tracker
             state_data = self._tracker.update(
@@ -533,15 +546,18 @@ class WaterSessionSensor(SensorEntity):
                 if self._calc_volume_from_flow:
                     self._integrated_session_volume = 0.0
                     self._last_integration_ts = current_time
-                    self._prev_flow_for_integration = engine_flow
+                    self._prev_flow_for_integration = effective_flow
+                    self._prev_synth_flow_for_integration = synthetic if self._include_synth_in_engine else 0.0
             if just_ended:
                 self._last_session_synth_volume = float(max(0.0, self._synthetic_volume_added))
                 if self._calc_volume_from_flow:
                     self._last_integration_ts = None
                     self._prev_flow_for_integration = 0.0
+                    self._prev_synth_flow_for_integration = 0.0
                 # Reset synthetic integrator timing until next session
                 self._last_synth_update = None
                 self._prev_synth_flow = 0.0
+                self._synthetic_volume_added = 0.0
 
             # Enrich state for listeners
             state_data["volume_unit"] = volume_unit
@@ -568,7 +584,6 @@ class WaterSessionSensor(SensorEntity):
                 "gap_active": state_data.get("gap_active", False),
                 "current_session_start": state_data.get("current_session_start"),
                 "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
-                "original_session_start": state_data.get("original_session_start"),
                 "current_session_volume": state_data.get("current_session_volume", 0.0),
                 "current_session_duration": state_data.get("current_session_duration", 0),
                 "current_session_average_flow": state_data.get("current_session_average_flow", 0.0),
@@ -705,7 +720,6 @@ class CurrentSessionVolumeSensor(SensorEntity):
             # Session timestamps
             "current_session_start": state_data.get("current_session_start"),
             "current_session_end": None if state_data.get("current_session_active", False) else state_data.get("last_session_end"),
-            "original_session_start": state_data.get("original_session_start"),
             "last_session_start": state_data.get("last_session_start"),
             "last_session_end": state_data.get("last_session_end"),
             # Instantaneous and debug

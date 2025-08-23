@@ -141,6 +141,4 @@ $tl = Get-State $tankLeakId
 Write-Host ("Tank leak: on={0} similar_count={1} events_in_window={2} last_event={3}" -f $tlOn, $tl.attributes.similar_count, $tl.attributes.events_in_window, $tl.attributes.last_event)
 
 # Final reset and restore valve
-Set-Synth 0.0
-Set-ValveOn $ValveEntityId
-Write-Host "Leak validation tests completed. Valve restored to ON state." -ForegroundColor Green
+Write-Host "Leak validation tests completed." -ForegroundColor Green

@@ -71,6 +71,48 @@ from .engine import WaterMonitorEngine
 _LOGGER = logging.getLogger(__name__)
 
 
+class LeakDetectorBase(BinarySensorEntity):
+    """Base class for leak detectors with common valve operations."""
+    
+    def __init__(self, entry: ConfigEntry, name: str) -> None:
+        super().__init__()
+        self._entry = entry
+        self._attr_name = name
+    
+    def _get_valve_context(self, auto_shutoff_config_key: str) -> tuple[Optional[str], bool, bool, bool]:
+        """Return (valve_entity_id, valve_off, auto_shutoff_enabled, effective)."""
+        ex = {**self._entry.data, **self._entry.options}
+        valve = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
+        # Also check auto-discovered valve from domain data
+        if not valve:
+            try:
+                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+                if isinstance(data, dict):
+                    valve = data.get("valve_entity_id") or ""
+            except Exception:
+                pass
+        auto = bool(ex.get(auto_shutoff_config_key, False))
+        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
+        effective = bool(valve and auto)
+        return (valve or None, valve_off, auto, effective)
+    
+    def _async_call_valve_off(self, valve_entity_id: str) -> None:
+        try:
+            domain = valve_entity_id.split(".")[0]
+            if domain == "valve":
+                srv_domain, service = "valve", "close_valve"
+            elif domain in ("switch", "input_boolean"):
+                srv_domain, service = domain, "turn_off"
+            else:
+                return
+            self.hass.async_create_task(
+                self.hass.services.async_call(srv_domain, service, {"entity_id": valve_entity_id}, blocking=False)
+            )
+        except Exception:
+            pass
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -230,14 +272,13 @@ class EngineStatusBinarySensor(BinarySensorEntity):
             pass
 
 
-class IntelligentLeakBinarySensor(BinarySensorEntity):
+class IntelligentLeakBinarySensor(LeakDetectorBase):
     """Real-time leak detection based on current-session and simple hourly baselines."""
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, entry: ConfigEntry, name: str) -> None:
-        self._entry = entry
-        self._attr_name = name
+        super().__init__(entry, name)
         self._attr_unique_id = f"{entry.entry_id}_intelligent_leak"
         self._attr_is_on = False
         self._attr_available = True
@@ -293,39 +334,6 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
         except Exception:
             return None
 
-    def _get_valve_context(self) -> tuple[Optional[str], bool, bool, bool]:
-        """Return (valve_entity_id, valve_off, auto_shutoff_enabled, effective)."""
-        ex = {**self._entry.data, **self._entry.options}
-        valve = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
-        # Also check auto-discovered valve from domain data
-        if not valve:
-            try:
-                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-                if isinstance(data, dict):
-                    valve = data.get("valve_entity_id") or ""
-            except Exception:
-                pass
-        auto = bool(ex.get(CONF_INTEL_AUTO_SHUTOFF, False))
-        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
-        effective = bool(valve and auto)
-        return (valve or None, valve_off, auto, effective)
-
-    def _async_call_valve_off(self, valve_entity_id: str) -> None:
-        try:
-            domain = valve_entity_id.split(".")[0]
-            if domain == "valve":
-                srv_domain, service = "valve", "close_valve"
-            elif domain in ("switch", "input_boolean"):
-                srv_domain, service = domain, "turn_off"
-            else:
-                return
-            self.hass.async_create_task(
-                self.hass.services.async_call(srv_domain, service, {"entity_id": valve_entity_id}, blocking=False)
-            )
-        except Exception:
-            pass
-
     def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
         local = now.astimezone()
         return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
@@ -361,7 +369,7 @@ class IntelligentLeakBinarySensor(BinarySensorEntity):
     @callback
     def _on_tracker_update(self, state: dict) -> None:
         try:
-            valve_entity, valve_off, auto, effective = self._get_valve_context()
+            valve_entity, valve_off, auto, effective = self._get_valve_context(CONF_INTEL_AUTO_SHUTOFF)
             now = datetime.now(timezone.utc)
             self._last_eval_ts = now
             # Pull live session metrics
@@ -654,7 +662,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class LowFlowLeakBinarySensor(BinarySensorEntity):
+class LowFlowLeakBinarySensor(LeakDetectorBase):
     """Detects sustained low-flow conditions as a leak.
 
     Modes:
@@ -681,8 +689,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         baseline_margin_pct: float,
         flow_entity_id: Optional[str],
     ) -> None:
-        self._entry = entry
-        self._attr_name = name
+        super().__init__(entry, name)
         self._attr_unique_id = f"{entry.entry_id}_low_flow_leak"
         self._attr_is_on = False
         self._attr_available = True
@@ -891,18 +898,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
             # Capture synthetic flow at trigger time for notifications
             self._synthetic_flow_at_trigger = getattr(self, '_current_synthetic_flow', 0.0)
         # If turning on and auto-shutoff is enabled, request valve off
-        ex = {**self._entry.data, **self._entry.options}
-        valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
-        # Also check auto-discovered valve from domain data
-        if not valve_ent:
-            try:
-                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-                if isinstance(data, dict):
-                    valve_ent = data.get("valve_entity_id") or ""
-            except Exception:
-                pass
-        auto = bool(ex.get(CONF_LOW_FLOW_AUTO_SHUTOFF, False))
-        effective = bool(valve_ent and auto)
+        valve_ent, valve_off, auto, effective = self._get_valve_context(CONF_LOW_FLOW_AUTO_SHUTOFF)
         if not prev_on and self._attr_is_on and effective:
             self._async_call_valve_off(valve_ent)
 
@@ -943,7 +939,7 @@ class LowFlowLeakBinarySensor(BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class TankRefillLeakBinarySensor(BinarySensorEntity):
+class TankRefillLeakBinarySensor(LeakDetectorBase):
     """Detects repeating, similar-sized tank refills within a window.
 
     Event source: the integration's "last_session" sensor. Each time
@@ -967,8 +963,7 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         min_duration_s: int,
         max_duration_s: int,
     ) -> None:
-        self._entry = entry
-        self._attr_name = name
+        super().__init__(entry, name)
         self._attr_unique_id = f"{entry.entry_id}_tank_refill_leak"
         self._attr_is_on = False
         self._attr_available = True
@@ -987,6 +982,7 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         # Source entity (resolved by unique_id lookup)
         self._source_entity_id: Optional[str] = None
         self._unsub_state = None
+        self._tracker_unsub = None
 
         # Event memory (ts, volume, duration)
         self._history: Deque[Tuple[datetime, float, int]] = deque()
@@ -1042,13 +1038,47 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
         except Exception:
             pass
         self.async_write_ha_state()
+        
+        # Subscribe to tracker updates for valve state changes
+        self._tracker_unsub = async_dispatcher_connect(
+            self.hass, tracker_signal(self._entry.entry_id), self._on_tracker_update
+        )
+        
         await self._resolve_and_subscribe()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub_state:
             self._unsub_state()
             self._unsub_state = None
+        if self._tracker_unsub:
+            self._tracker_unsub()
+            self._tracker_unsub = None
         await super().async_will_remove_from_hass()
+
+    @callback
+    def _on_tracker_update(self, state: dict) -> None:
+        """Update attributes when valve state or other tracker data changes."""
+        try:
+            # Update current synthetic flow for consistent capture
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            if isinstance(data, dict):
+                self._current_synthetic_flow = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
+            
+            # Get current valve context to update attributes
+            valve_ent, valve_off, auto, effective = self._get_valve_context(CONF_TANK_LEAK_AUTO_SHUTOFF)
+            
+            # Update valve-related attributes
+            self._attr_extra_state_attributes.update({
+                "auto_shutoff_on_trigger": auto,
+                "auto_shutoff_effective": effective,
+                "auto_shutoff_valve_entity": (valve_ent or None),
+                "valve_off": valve_off,
+            })
+            
+            self.async_write_ha_state()
+        except Exception:
+            # Defensive: don't throw from callback
+            pass
 
     async def _resolve_and_subscribe(self) -> None:
         """Find the last_session sensor entity_id and subscribe to its changes."""
@@ -1102,6 +1132,10 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             dur = int(main.attributes.get("last_session_duration", 0) or 0)
         except (ValueError, TypeError):
             dur = 0
+        try:
+            synthetic_vol = float(main.attributes.get("last_session_synthetic_volume", 0.0) or 0.0)
+        except (ValueError, TypeError):
+            synthetic_vol = 0.0
 
         # Only record when the pair changes
         if self._last_seen_pair != (vol, dur):
@@ -1150,20 +1184,7 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
 
         prev_on = self._attr_is_on
         # Read valve context
-        ex = {**self._entry.data, **self._entry.options}
-        valve_ent = ex.get(CONF_WATER_SHUTOFF_ENTITY) or ""
-        # Also check auto-discovered valve from domain data
-        if not valve_ent:
-            try:
-                data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-                if isinstance(data, dict):
-                    valve_ent = data.get("valve_entity_id") or ""
-            except Exception:
-                pass
-        auto = bool(ex.get(CONF_TANK_LEAK_AUTO_SHUTOFF, False))
-        effective = bool(valve_ent and auto)
-        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-        valve_off = bool(data.get("valve_off", False)) if isinstance(data, dict) else False
+        valve_ent, valve_off, auto, effective = self._get_valve_context(CONF_TANK_LEAK_AUTO_SHUTOFF)
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
         
         # Track if we're transitioning from OFF to ON for auto-shutoff
@@ -1173,17 +1194,14 @@ class TankRefillLeakBinarySensor(BinarySensorEntity):
             prev_was_off = not self._attr_is_on
             self._attr_is_on = True
             transitioning_on = prev_was_off  # Store transition state for auto-shutoff
-            # Capture synthetic flow at trigger time for notifications - use same method as low-flow
+            # Capture synthetic flow at trigger time for notifications
+            # For tank refill detection, use synthetic volume from the triggering session
             if prev_was_off:
-                self._synthetic_flow_at_trigger = getattr(self, '_current_synthetic_flow', 0.0)
-                # Fallback to domain data if attribute not available
-                if self._synthetic_flow_at_trigger == 0.0:
-                    try:
-                        data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
-                        if isinstance(data, dict):
-                            self._synthetic_flow_at_trigger = float(data.get("synthetic_flow_gpm", 0.0) or 0.0)
-                    except Exception:
-                        self._synthetic_flow_at_trigger = 0.0
+                # Convert synthetic volume to equivalent flow rate (gallons/minute)
+                if dur > 0 and synthetic_vol > 0:
+                    self._synthetic_flow_at_trigger = (synthetic_vol * 60.0) / dur  # gallons/minute
+                else:
+                    self._synthetic_flow_at_trigger = 0.0
         else:
             # Auto-clear after idle period since last event
             if self._attr_is_on and self._last_event_ts and (now - self._last_event_ts).total_seconds() >= self._clear_idle_s:

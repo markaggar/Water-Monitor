@@ -7,6 +7,8 @@
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection with water shut-off valve support. Only a Flow sensor is required; a Volume sensor, Hot water sensor and shut-off valve control is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
+**NEW** - Water Monitor Leak Detector Automations package with actionable notifications to alert you of any problems that the leak detectors find. Get the package from [here](examples/water_monitor_package.yaml) or download the zip file from the root directory of the Water Monitor repo and copy /examples/water_monitor_package.yaml into your packages folder. Instructions for install are in the .yaml file.
+
 <img width="449" height="666" alt="image" src="https://github.com/user-attachments/assets/a8cdcfeb-f03d-4e9c-9527-e7230c58ddd8" />
 
 ## Features
@@ -130,6 +132,16 @@ Notes
 If Enable Synthetic Flow (testing) is enabled, you'll be presented with another page:
 - Include synthetic flow in detectors - allow detectors to see synthetic flow
 - Include synthetic flow in daily analysis - allow intelligent leak analysis to see synthetic flow
+
+### Analysis Engine Schedule
+
+The intelligent leak detection analysis engine automatically runs daily at **3:10 AM local time** to:
+
+- Analyze yesterday's water usage patterns
+- Update baseline statistics for anomaly detection
+- Build context-aware usage profiles
+
+**Note:** Analysis only runs when "Enable Intelligent Leak Detection" is enabled. You can also manually trigger analysis using the `water_monitor.analyze_yesterday` service.
 
 ## Reconfiguration
 

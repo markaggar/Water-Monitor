@@ -7,6 +7,18 @@
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection with water shut-off valve support. Only a Flow sensor is required; a Volume sensor, Hot water sensor and shut-off valve control is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
+**NEW**
+A package that you can install that will provide automations with actionable notifications to alert you of any problems that the leak detectors find.
+1) Get the package from [here](examples/water_monitor_package.yaml), copy the contents and edit the defaults (notify service and thresholds)
+2) Ensure your configuration.yaml file has
+   ```
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+3) Create a package folder (same level as a configuration.yaml) if you don't have one
+4) Create water_monitor_package.yaml in the packages folder
+5) Edit the file and copy the contents.
+
 <img width="449" height="666" alt="image" src="https://github.com/user-attachments/assets/a8cdcfeb-f03d-4e9c-9527-e7230c58ddd8" />
 
 ## Features

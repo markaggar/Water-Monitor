@@ -7,9 +7,7 @@
 # Zero / minimal user edits expected:
 # - Adjust notification service if not `notify.mark`.
 # - Optionally tweak helper default values below.
-# (Former broad state_changed trigger removed; targeted triggers below are
-#  efficient for typical homes. Add more explicit entity_ids only if you have
-#  multiple integration instances.)
+# - targeted triggers below are appropriate for standard integration name 'water monitor'.
 #
 # This package auto-discovers Water Monitor leak detectors, valve + context,
 # and session metrics. It sends actionable notifications, supports snooze,
@@ -207,21 +205,21 @@ automation:
         from: 'off'
         to: 'on'
         entity_id:
-          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
       - platform: state
         id: leak_off
         from: 'on'
         to: 'off'
         entity_id:
-          - binary_sensor.water_monitor_synth_low_flow_leak          # comment out if not created
-          - binary_sensor.water_monitor_synth_tank_refill_leak       # optional
-          - binary_sensor.water_monitor_synth_intelligent_leak       # optional / experimental
+          - binary_sensor.water_monitor_low_flow_leak          # comment out if not created
+          - binary_sensor.water_monitor_tank_refill_leak       # optional
+          - binary_sensor.water_monitor_intelligent_leak       # optional / experimental
       - platform: state
         id: upstream
         entity_id:
-          - binary_sensor.water_monitor_synth_upstream_health
+          - binary_sensor.water_monitor_upstream_health
   # (Removed obsolete state-based current_session_high trigger referencing missing entity)
       # High session trigger using template (fires once when threshold sustained 5s)
       - platform: template
@@ -243,14 +241,6 @@ automation:
         event_type: mobile_app_notification_action
     condition: []
     action:
-      # Diagnostic logging to identify which trigger fires frequently.
-      - variables:
-          dbg_trigger_id: "{{ trigger.id if trigger is defined else 'none' }}"
-          dbg_entity: "{{ trigger.entity_id if trigger.platform == 'state' else '' }}"
-      - service: system_log.write
-        data:
-          message: "water_monitor_orchestrator fired id={{ dbg_trigger_id }} entity={{ dbg_entity }}"
-          level: info
       - choose:
           - conditions: >
               {{ trigger.platform == 'event' and trigger.event.event_type == 'mobile_app_notification_action' }}

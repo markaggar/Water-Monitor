@@ -18,7 +18,7 @@ A Home Assistant custom integration for water usage monitoring that provides ses
   - Smart gap handling to avoid splitting single sessions
 - Session sensors
   - Last session volume: Most recently completed session with metadata
-  - Current session volume: Real-time view during active use, shows the intermediate volume during gaps, and resets to 0 when a session ends
+  - Current session volume: Real-time view during active use including gaps, and resets to 0 when a session ends
   - Last session duration: Duration in seconds of the last completed session
   - Last session average flow: Average flow rate of the last completed session (volume unit per minute)
   - Last session hot water percentage: Hot water percentage of the last completed session
@@ -52,7 +52,7 @@ Here is a list of devices that the community has tested or should work with the 
 | Titan Water Valve Actuator | Zooz | Y (Valve) | N | N | Y| Y (Zwave) | NA | N | [link](https://amzn.to/4mPD3x8) |
 
 ## DISCLAIMER ##
-A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g. leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater, washing machine, toilet o-ring), water infiltration from outside, or a blocked sewer pipe (speaking from experience), a water flow sensor (and this integration) will not detect those events. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor (again, experienced all of those!).
+A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g., leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater, washing machine, toilet o-ring), water infiltration from outside, or a blocked sewer pipe (speaking from experience), a water flow sensor (and this integration) will not detect those events. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor (again, experienced all of those!). It might be able to detect very slow leaks due to loose fittings or hairline cracks, but you should test your flow sensor has sufficient sensitivity to detect flow for those types of events.
 
 Also, having a controllable valve that enables you or this integration to remotely shut off water to the house in the event of a leak detection (from either this integration or a leak/moisture sensor) could pay for itself many times over if you ever have a leak detected but are not at home to turn the water off manually.
 

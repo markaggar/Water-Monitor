@@ -73,8 +73,48 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle configuration updates and clean up disabled entities."""
+    # Clean up disabled entities before reloading
+    await _cleanup_disabled_entities(hass, entry)
     # Reload entry so options changes take effect and entities are created/removed accordingly
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def _cleanup_disabled_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entities from registry when their corresponding configuration is disabled."""
+    try:
+        from .const import CONF_LOW_FLOW_ENABLE, CONF_TANK_LEAK_ENABLE, CONF_SYNTHETIC_ENABLE
+        
+        ex = {**entry.data, **entry.options}
+        ent_reg = er.async_get(hass)
+        
+        entities_to_remove = []
+        
+        # Check low-flow leak detector
+        if not ex.get(CONF_LOW_FLOW_ENABLE, False):
+            low_flow_uid = f"{entry.entry_id}_low_flow_leak"
+            if low_flow_entity := ent_reg.async_get_entity_id("binary_sensor", DOMAIN, low_flow_uid):
+                entities_to_remove.append(low_flow_entity)
+        
+        # Check tank refill leak detector
+        if not ex.get(CONF_TANK_LEAK_ENABLE, False):
+            tank_leak_uid = f"{entry.entry_id}_tank_refill_leak"
+            if tank_leak_entity := ent_reg.async_get_entity_id("binary_sensor", DOMAIN, tank_leak_uid):
+                entities_to_remove.append(tank_leak_entity)
+        
+        # Check synthetic flow number entity
+        if not ex.get(CONF_SYNTHETIC_ENABLE, False):
+            synthetic_uid = f"{entry.entry_id}_synthetic_flow_gpm"
+            if synthetic_entity := ent_reg.async_get_entity_id("number", DOMAIN, synthetic_uid):
+                entities_to_remove.append(synthetic_entity)
+        
+        # Remove the entities
+        for entity_id in entities_to_remove:
+            _LOGGER.info("Removing disabled entity: %s", entity_id)
+            ent_reg.async_remove(entity_id)
+            
+    except Exception as e:
+        _LOGGER.warning("Error cleaning up disabled entities: %s", e)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

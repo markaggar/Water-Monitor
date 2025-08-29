@@ -83,7 +83,7 @@ async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def _cleanup_disabled_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove entities from registry when their corresponding configuration is disabled."""
     try:
-        from .const import CONF_LOW_FLOW_ENABLE, CONF_TANK_LEAK_ENABLE, CONF_SYNTHETIC_ENABLE
+        from .const import CONF_LOW_FLOW_ENABLE, CONF_TANK_LEAK_ENABLE, CONF_SYNTHETIC_ENABLE, CONF_INTEL_DETECT_ENABLE
         
         ex = {**entry.data, **entry.options}
         ent_reg = er.async_get(hass)
@@ -101,6 +101,12 @@ async def _cleanup_disabled_entities(hass: HomeAssistant, entry: ConfigEntry) ->
             tank_leak_uid = f"{entry.entry_id}_tank_refill_leak"
             if tank_leak_entity := ent_reg.async_get_entity_id("binary_sensor", DOMAIN, tank_leak_uid):
                 entities_to_remove.append(tank_leak_entity)
+        
+        # Check intelligent leak detector
+        if not ex.get(CONF_INTEL_DETECT_ENABLE, False):
+            intel_leak_uid = f"{entry.entry_id}_intelligent_leak"
+            if intel_leak_entity := ent_reg.async_get_entity_id("binary_sensor", DOMAIN, intel_leak_uid):
+                entities_to_remove.append(intel_leak_entity)
         
         # Check synthetic flow number entity
         if not ex.get(CONF_SYNTHETIC_ENABLE, False):

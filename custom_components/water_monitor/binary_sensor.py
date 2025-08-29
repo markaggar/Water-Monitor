@@ -59,6 +59,8 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    # Intelligent leak detection
+    CONF_INTEL_DETECT_ENABLE,
     # Shutoff valve and auto-shutoff flags
     CONF_WATER_SHUTOFF_ENTITY,
     CONF_LOW_FLOW_AUTO_SHUTOFF,
@@ -187,13 +189,14 @@ async def async_setup_entry(
         )
     )
 
-    # Intelligent leak detector (simple baseline version)
-    entities.append(
-        IntelligentLeakBinarySensor(
-            entry=entry,
-            name=f"{prefix} Intelligent leak",
+    # Intelligent leak detector (optional)
+    if opts.get(CONF_INTEL_DETECT_ENABLE):
+        entities.append(
+            IntelligentLeakBinarySensor(
+                entry=entry,
+                name=f"{prefix} Intelligent leak",
+            )
         )
-    )
 
     async_add_entities(entities)
 

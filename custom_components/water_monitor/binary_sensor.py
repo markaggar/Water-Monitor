@@ -462,31 +462,48 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             if not prev and is_on:
                 self._synthetic_flow_at_trigger = float(state.get("synthetic_flow_gpm", 0.0) or 0.0)
             
+            # Build human-readable trigger reason
+            if is_on:
+                if baseline_ready:
+                    trigger_reason = f"Water usage exceeded {chosen_p:.1f}th percentile baseline for current context"
+                else:
+                    trigger_reason = f"Water usage exceeded fallback threshold (no baseline data)"
+                if "low_flow_persistent" in reasons:
+                    trigger_reason += " with persistent low flow pattern"
+            else:
+                trigger_reason = "No leak detected"
+            
+            # Build usage context string
+            usage_context = bucket or f"{hour}|{day_type}|{occ_class}"
+            
             self._attr_is_on = is_on
             self._attr_extra_state_attributes = {
+                # Universal attributes
+                "leak_type": "intelligent",
+                "trigger_reason": trigger_reason,
+                "current_flow": round(flow_now, 2),
+                "elapsed_s": eff_elapsed,
+                "trigger_value": eff_elapsed,
+                "trigger_threshold": round(effective_threshold, 1),
+                "trigger_unit": "seconds",
+                "hot_pct": round(hot_pct, 1),
+                
+                # Intelligent-specific attributes
+                "current_usage": round(avg_flow, 2),
+                "baseline_usage": round(self._interpolate_threshold(p90, p95, p99, 50.0) / 60.0, 2) if baseline_ready else 0.0,  # Convert to GPM
+                "usage_context": usage_context,
                 "baseline_ready": baseline_ready,
                 "bucket_used": bucket,
-                "count": count,
-                "p90": p90,
-                "p95": p95,
-                "p99": p99,
                 "sensitivity_setting": sensitivity,
                 "chosen_percentile": round(chosen_p, 1),
-                "effective_threshold_s": round(effective_threshold, 1),
-                "fallback_elapsed_floor_s": round(fallback_floor_s, 1),
-                "policy_context": occ_class,
-                "elapsed_s": eff_elapsed,
-                "avg_flow": round(avg_flow, 2),
-                "hot_pct": round(hot_pct, 1),
-                "flow_now": flow_now,
                 "risk": round(risk, 2),
                 "reasons": reasons,
+                
                 # Auto-shutoff attributes
                 "auto_shutoff_on_trigger": auto,
                 "auto_shutoff_effective": effective,
                 "auto_shutoff_valve_entity": valve_entity,
                 "valve_off": valve_off,
-                # Synthetic flow tracking for notifications
                 "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
             }
             # Auto-shutoff action when transitioning OFF->ON
@@ -899,7 +916,7 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
             self._synthetic_flow_at_trigger = getattr(self, '_current_synthetic_flow', 0.0)
         # If turning on and auto-shutoff is enabled, request valve off
         valve_ent, valve_off, auto, effective = self._get_valve_context(CONF_LOW_FLOW_AUTO_SHUTOFF)
-        if not prev_on and self._attr_is_on and effective:
+        if not prev_on and self._attr_is_on and effective and valve_ent:
             self._async_call_valve_off(valve_ent)
 
         # Phase
@@ -910,15 +927,44 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
         else:
             phase = "counting" if counting_active else "idle"
 
+        # Build human-readable trigger reason
+        if self._attr_is_on:
+            trigger_reason = f"Sustained low flow detected ({self._counting_mode} mode)"
+            if flow > 0:
+                trigger_reason += f" at {flow:.2f} GPM for {self._count_progress:.0f}s"
+        else:
+            if phase == "seeding":
+                trigger_reason = f"Building confidence ({self._seed_progress:.0f}s of {self._seed_s}s required)"
+            elif phase == "counting":
+                trigger_reason = f"Monitoring flow ({self._count_progress:.0f}s of {self._min_s}s required)"
+            else:
+                trigger_reason = "No sustained flow detected"
+
+        # Get hot water percentage from tracker
+        try:
+            tracker_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+            hot_pct = float(tracker_data.get("current_session_hot_water_pct", 0.0) or 0.0)
+        except Exception:
+            hot_pct = 0.0
+
         self._attr_extra_state_attributes = {
+            # Universal attributes
+            "leak_type": "low_flow",
+            "trigger_reason": trigger_reason,
+            "current_flow": round(flow, 2),
+            "elapsed_s": round(self._count_progress, 1),
+            "trigger_value": round(self._count_progress, 1),
+            "trigger_threshold": float(self._min_s),
+            "trigger_unit": "seconds",
+            "hot_pct": round(hot_pct, 1),
+            
+            # Low-flow specific attributes (kept for configuration understanding)
             "mode": self._counting_mode,
             "phase": phase,
-            "flow": flow,
             "max_low_flow": self._max_low_flow,
             "seed_required_s": self._seed_s,
             "seed_progress_s": round(self._seed_progress, 1),
             "min_duration_s": self._min_s,
-            "count_progress_s": round(self._count_progress, 1),
             "idle_zero_s": round(self._idle_zero_s, 1),
             "high_flow_s": round(self._high_flow_s, 1),
             "clear_idle_s": self._clear_idle_s,
@@ -927,12 +973,12 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "smoothing_s": self._smoothing_s,
             "baseline_margin_pct": self._baseline_margin_pct,
+            
             # Auto-shutoff attributes
             "auto_shutoff_on_trigger": auto,
             "auto_shutoff_effective": effective,
             "auto_shutoff_valve_entity": (valve_ent or None),
             "valve_off": valve_off,
-            # Synthetic flow tracking for notifications
             "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
         self._last_update = now
@@ -1209,26 +1255,70 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
                     self._attr_is_on = False
                     if self._cooldown_s > 0:
                         self._cooldown_until = now + timedelta(seconds=self._cooldown_s)
+        
+        # Calculate timeout_cleared_s (how long since pattern broke when off)
+        timeout_cleared_s = 0
+        if not self._attr_is_on and self._last_event_ts:
+            timeout_cleared_s = int((now - self._last_event_ts).total_seconds())
+        
+        # Build human-readable trigger reason
+        if self._attr_is_on:
+            latest_vol = self._history[-1][1] if self._history else 0
+            trigger_reason = f"{similar_count} similar refills ({latest_vol:.1f}gal ±{self._tol_pct}%) detected in {self._window_s//60}min window"
+        else:
+            if similar_count > 0:
+                trigger_reason = f"Only {similar_count} of {self._repeat} required similar refills detected"
+            else:
+                trigger_reason = "No tank refill pattern detected"
+
+        # Get current flow and hot water percentage from tracker for universal attributes
+        try:
+            tracker_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+            current_flow = float(tracker_data.get("flow_sensor_value", 0.0) or 0.0)
+            hot_pct = float(tracker_data.get("current_session_hot_water_pct", 0.0) or 0.0)
+        except Exception:
+            current_flow = 0.0
+            hot_pct = 0.0
+        
+        # For tank refill, elapsed_s represents time since pattern started
+        elapsed_s = 0
+        if self._history and len(self._history) > 0:
+            elapsed_s = int((now - self._history[0][0]).total_seconds())
+
         self._attr_extra_state_attributes = {
-            "events_in_window": len(self._history),
+            # Universal attributes
+            "leak_type": "tank_refill",
+            "trigger_reason": trigger_reason,
+            "current_flow": round(current_flow, 2),
+            "elapsed_s": elapsed_s,
+            "trigger_value": similar_count,
+            "trigger_threshold": self._repeat,
+            "trigger_unit": "volume",
+            "hot_pct": round(hot_pct, 1),
+            
+            # Tank refill specific attributes
             "similar_count": similar_count,
+            "window_s": self._window_s,
+            "contributing_events": contributing,
+            "timeout_cleared_s": timeout_cleared_s,
+            
+            # Configuration attributes (kept for understanding)
+            "events_in_window": len(self._history),
             "min_refill_volume": self._min_volume,
             "max_refill_volume": self._max_volume,
             "tolerance_pct": self._tol_pct,
             "repeat_count": self._repeat,
-            "window_s": self._window_s,
             "clear_idle_s": self._clear_idle_s,
             "cooldown_s": self._cooldown_s,
             "last_event": self._last_event_ts.isoformat() if self._last_event_ts else None,
             "min_refill_duration_s": self._min_duration_s,
             "max_refill_duration_s": self._max_duration_s,
-            "contributing_events": contributing,
+            
             # Auto-shutoff attributes
             "auto_shutoff_on_trigger": auto,
             "auto_shutoff_effective": effective,
             "auto_shutoff_valve_entity": (valve_ent or None),
             "valve_off": valve_off,
-            # Synthetic flow tracking for notifications
             "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
 

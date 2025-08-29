@@ -57,6 +57,7 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
     # shutoff valve
     CONF_WATER_SHUTOFF_ENTITY,
     CONF_CLEAR_WATER_SHUTOFF,
@@ -317,6 +318,11 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         CONF_TANK_LEAK_REPEAT_COUNT,
         default=ex.get(CONF_TANK_LEAK_REPEAT_COUNT, DEFAULTS[CONF_TANK_LEAK_REPEAT_COUNT])
     )] = s_int(min_=2, step=1)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
+        default=ex.get(CONF_TANK_LEAK_MAX_HOT_WATER_PCT, DEFAULTS[CONF_TANK_LEAK_MAX_HOT_WATER_PCT])
+    )] = s_number(min_=0, step=5)
 
     fields[vol.Required(
         CONF_TANK_LEAK_WINDOW_S,
@@ -694,6 +700,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_TANK_LEAK_MAX_REFILL_VOLUME,
                 CONF_TANK_LEAK_TOLERANCE_PCT,
                 CONF_TANK_LEAK_REPEAT_COUNT,
+                CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
                 CONF_TANK_LEAK_WINDOW_S,
                 CONF_TANK_LEAK_CLEAR_IDLE_S,
                 CONF_TANK_LEAK_COOLDOWN_S,

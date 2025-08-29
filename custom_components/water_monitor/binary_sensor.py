@@ -59,6 +59,7 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
     # Intelligent leak detection
     CONF_INTEL_DETECT_ENABLE,
     # Shutoff valve and auto-shutoff flags
@@ -178,6 +179,7 @@ async def async_setup_entry(
                 cooldown_s=int(opts.get(CONF_TANK_LEAK_COOLDOWN_S) or 0),
                 min_duration_s=int(opts.get(CONF_TANK_LEAK_MIN_REFILL_DURATION_S) or 0),
                 max_duration_s=int(opts.get(CONF_TANK_LEAK_MAX_REFILL_DURATION_S) or 0),
+                max_hot_water_pct=float(opts.get(CONF_TANK_LEAK_MAX_HOT_WATER_PCT) or 25.0),
             )
         )
 
@@ -1011,6 +1013,7 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         cooldown_s: int,
         min_duration_s: int,
         max_duration_s: int,
+        max_hot_water_pct: float,
     ) -> None:
         super().__init__(entry, name)
         self._attr_unique_id = f"{entry.entry_id}_tank_refill_leak"
@@ -1027,6 +1030,7 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         self._cooldown_s = int(cooldown_s)
         self._min_duration_s = int(min_duration_s)
         self._max_duration_s = int(max_duration_s)
+        self._max_hot_water_pct = float(max_hot_water_pct)
 
         # Source entity (resolved by unique_id lookup)
         self._source_entity_id: Optional[str] = None
@@ -1077,6 +1081,7 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
                 "last_event": None,
                 "min_refill_duration_s": self._min_duration_s,
                 "max_refill_duration_s": self._max_duration_s,
+                "max_hot_water_pct": self._max_hot_water_pct,
                 "contributing_events": [],
                 # Auto-shutoff attributes
                 "auto_shutoff_on_trigger": auto,
@@ -1185,6 +1190,11 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
             synthetic_vol = float(main.attributes.get("last_session_synthetic_volume", 0.0) or 0.0)
         except (ValueError, TypeError):
             synthetic_vol = 0.0
+        
+        try:
+            hot_water_pct = float(main.attributes.get("last_session_hot_water_pct", 0.0) or 0.0)
+        except (ValueError, TypeError):
+            hot_water_pct = 0.0
 
         # Only record when the pair changes
         if self._last_seen_pair != (vol, dur):
@@ -1196,7 +1206,10 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
             if self._max_duration_s > 0 and dur > self._max_duration_s:
                 duration_ok = False
 
-            if duration_ok and vol >= self._min_volume and (
+            # Apply hot water percentage gate
+            hot_water_ok = hot_water_pct <= self._max_hot_water_pct
+
+            if duration_ok and hot_water_ok and vol >= self._min_volume and (
                 self._max_volume <= 0.0 or vol <= self._max_volume
             ):
                 self._history.append((now, vol, dur))

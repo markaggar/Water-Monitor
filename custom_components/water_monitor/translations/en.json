@@ -198,6 +198,21 @@
       }
     }
   },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapezoidal (recommended)",
+        "left": "Left Riemann sum"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Any non-zero flow (wall clock)",
+        "in_range_only": "Only time within low-flow range",
+        "baseline_latch": "Baseline latch mode"
+      }
+    }
+  },
   "entity": {
     "number": {
       "expected_baseline": {

@@ -57,6 +57,7 @@ from .const import (
     CONF_TANK_LEAK_COOLDOWN_S,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S,
+    CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
     # shutoff valve
     CONF_WATER_SHUTOFF_ENTITY,
     CONF_CLEAR_WATER_SHUTOFF,
@@ -203,10 +204,11 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
             )] = ha_selector({
                 "select": {
                     "options": [
-                        {"label": "Trapezoidal (recommended)", "value": INTEGRATION_METHOD_TRAPEZOIDAL},
-                        {"label": "Left (match external counters)", "value": INTEGRATION_METHOD_LEFT}
+                        INTEGRATION_METHOD_TRAPEZOIDAL,
+                        INTEGRATION_METHOD_LEFT
                     ],
-                    "mode": "list"
+                    "mode": "list",
+                    "translation_key": "integration_method"
                 }
             })
         else:
@@ -255,11 +257,12 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         )] = ha_selector({
             "select": {
                 "options": [
-                    {"label": "Any non-zero flow (wall clock)", "value": COUNTING_MODE_NONZERO},
-                    {"label": "Only time within low-flow range", "value": COUNTING_MODE_IN_RANGE},
-                    {"label": "Baseline latch (with optional expected baseline)", "value": COUNTING_MODE_BASELINE_LATCH}
+                    COUNTING_MODE_NONZERO,
+                    COUNTING_MODE_IN_RANGE,
+                    COUNTING_MODE_BASELINE_LATCH
                 ],
-                "mode": "list"
+                "mode": "list",
+                "translation_key": "low_flow_counting_mode"
             }
         })
     else:
@@ -317,6 +320,11 @@ def _tank_leak_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         CONF_TANK_LEAK_REPEAT_COUNT,
         default=ex.get(CONF_TANK_LEAK_REPEAT_COUNT, DEFAULTS[CONF_TANK_LEAK_REPEAT_COUNT])
     )] = s_int(min_=2, step=1)
+
+    fields[vol.Required(
+        CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
+        default=ex.get(CONF_TANK_LEAK_MAX_HOT_WATER_PCT, DEFAULTS[CONF_TANK_LEAK_MAX_HOT_WATER_PCT])
+    )] = s_number(min_=0, step=5)
 
     fields[vol.Required(
         CONF_TANK_LEAK_WINDOW_S,
@@ -694,6 +702,7 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_TANK_LEAK_MAX_REFILL_VOLUME,
                 CONF_TANK_LEAK_TOLERANCE_PCT,
                 CONF_TANK_LEAK_REPEAT_COUNT,
+                CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
                 CONF_TANK_LEAK_WINDOW_S,
                 CONF_TANK_LEAK_CLEAR_IDLE_S,
                 CONF_TANK_LEAK_COOLDOWN_S,

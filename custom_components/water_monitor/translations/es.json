@@ -1,0 +1,216 @@
+{
+  "title": "Monitor de Agua",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar Monitor de Agua",
+        "description": "Configure sus sensores y reglas de seguimiento de sesiones.",
+        "data": {
+          "sensor_prefix": "Prefijo del nombre del sensor",
+          "flow_sensor": "Sensor de flujo",
+          "volume_sensor": "Sensor de volumen (opcional)",
+          "hot_water_sensor": "Sensor binario de agua caliente (opcional)",
+          "water_shutoff_entity": "Válvula de corte de agua (opcional)",
+          "clear_water_shutoff_entity": "Limpiar válvula de corte de agua",
+          "clear_volume_sensor": "Limpiar sensor de volumen",
+          "clear_hot_water_sensor": "Limpiar sensor de agua caliente",
+          "integration_method": "Método de integración (cuando no se especifica sensor de volumen)",
+          "min_session_volume": "Volumen mínimo de sesión",
+          "min_session_duration": "Duración mínima de sesión (segundos)",
+          "session_gap_tolerance": "Tolerancia de brecha (segundos)",
+          "sessions_use_baseline_as_zero": "Tratar el umbral base como cero para el final de sesión",
+          "sessions_idle_to_close_s": "Inactividad base para cerrar sesión (segundos)",
+          "synthetic_enable": "Habilitar Flujo Sintético (pruebas)",
+          "intelligent_leak_detection_enable": "Habilitar Detección Inteligente de Fugas (experimental)",
+          "low_flow_enable": "Habilitar detección de fugas de bajo flujo",
+          "tank_refill_leak_enable": "Habilitar detección de fugas de rellenado de tanque"
+        },
+        "data_description": {
+          "integration_method": "Solo se usa al calcular el volumen del sensor de flujo. Trapezoidal (recomendado) da mejor precisión en flujo cambiante. Izquierda coincide con contadores externos que marcan una vez por actualización."
+        }
+      },
+      "synthetic": {
+        "title": "Flujo Sintético",
+        "description": "Controles de flujo sintético opcionales solo para pruebas.",
+        "data": {
+          "include_synthetic_in_detectors": "Incluir flujo sintético en detectores",
+          "include_synthetic_in_daily": "Incluir sintético en análisis diario"
+        }
+      },
+      "intelligent": {
+        "title": "Detección Inteligente de Fugas",
+        "description": "Configuraciones opcionales conscientes de ocupación y modo de aprendizaje.",
+        "data": {
+          "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
+          "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
+          "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
+          "intelligent_learning_enable": "Habilitar modo de aprendizaje"
+        }
+      },
+      "tank_leak": {
+        "title": "Detección de fugas de rellenado de tanque",
+        "description": "Se activa cuando ocurren varios rellenados pequeños similares en poco tiempo — típico de una válvula de inodoro que gotea.",
+        "data": {
+          "tank_refill_min_volume": "Volumen mínimo de rellenado",
+          "tank_refill_max_volume": "Volumen máximo de rellenado (0 = deshabilitado)",
+          "tank_refill_volume_tolerance_pct": "Tolerancia de similitud (%)",
+          "tank_refill_repeat_count": "Recuento de repeticiones para activar",
+          "tank_refill_max_hot_water_pct": "Porcentaje máximo de agua caliente (%)",
+          "tank_refill_window_s": "Ventana para contar repeticiones (segundos)",
+          "tank_refill_clear_idle_s": "Auto-limpiar después de inactividad (segundos)",
+          "tank_refill_cooldown_s": "Enfriamiento después de limpiar (segundos)",
+          "tank_refill_min_duration_s": "Duración mínima de rellenado (segundos, 0 = deshabilitado)",
+          "tank_refill_max_duration_s": "Duración máxima de rellenado (segundos, 0 = deshabilitado)",
+          "tank_refill_auto_shutoff_on_trigger": "Apagar válvula de corte cuando se detecte fuga"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignorar rellenados menores que esto.",
+          "tank_refill_max_volume": "Ignorar rellenados mayores que esto (0 deshabilita el límite).",
+          "tank_refill_volume_tolerance_pct": "Qué tan similares deben ser los volúmenes para contarse juntos.",
+          "tank_refill_repeat_count": "Número de rellenados similares dentro de la ventana requeridos para activar.",
+          "tank_refill_max_hot_water_pct": "Las sesiones con porcentaje de agua caliente por encima de esto serán ignoradas.",
+          "tank_refill_window_s": "Ventana de tiempo para recopilar rellenados para comparación.",
+          "tank_refill_clear_idle_s": "Tiempo sin rellenados coincidentes antes de que la alerta se borre.",
+          "tank_refill_cooldown_s": "Suprimir reactivación por este tiempo después de limpiar.",
+          "tank_refill_min_duration_s": "Ignorar rellenados más cortos que esto (0 deshabilita la protección).",
+          "tank_refill_max_duration_s": "Ignorar rellenados más largos que esto (0 deshabilita la protección)."
+        }
+      },
+      "low_flow": {
+        "title": "Detección de fugas de bajo flujo",
+        "description": "Configure cuándo un flujo bajo sostenido debe considerarse una fuga.",
+        "data": {
+          "low_flow_max_flow": "Tasa máxima de bajo flujo",
+          "low_flow_seed_low_flow_duration_s": "Duración de semilla de bajo flujo (segundos)",
+          "low_flow_min_duration_s": "Duración mínima para activar (segundos)",
+          "low_flow_clear_idle_s": "Limpiar después de inactividad (segundos en flujo cero)",
+          "low_flow_counting_mode": "Modo de conteo",
+          "low_flow_smoothing_window_s": "Ventana de suavizado (segundos)",
+          "low_flow_cooldown_s": "Enfriamiento después de limpiar (segundos)",
+          "low_flow_clear_on_sustained_high_flow_s": "Limpiar después de alto flujo sostenido (segundos, opcional)",
+          "low_flow_baseline_margin_pct": "Margen base (%)",
+          "low_flow_auto_shutoff_on_trigger": "Apagar válvula de corte cuando se detecte fuga"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Elija cómo se acumula el tiempo durante bajo flujo:\n- Cualquier flujo no cero (tiempo real): cuenta todo el tiempo mientras flujo > 0\n- Solo tiempo dentro del rango de bajo flujo: cuenta solo mientras 0 < flujo ≤ máximo bajo flujo\n- Enganche base: una vez sembrado, engancha una base y cuenta mientras el flujo se mantiene cerca de la base; el margen controla la banda permitida"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entidad no encontrada"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones del Monitor de Agua",
+        "description": "Actualice sus sensores, reglas de sesión y configuraciones de detección de fugas.",
+        "data": {
+          "sensor_prefix": "Prefijo del nombre del sensor",
+          "flow_sensor": "Sensor de flujo",
+          "volume_sensor": "Sensor de volumen (opcional)",
+          "hot_water_sensor": "Sensor binario de agua caliente (opcional)",
+          "water_shutoff_entity": "Válvula de corte de agua (opcional)",
+          "clear_water_shutoff_entity": "Limpiar válvula de corte de agua",
+          "clear_volume_sensor": "Limpiar sensor de volumen",
+          "clear_hot_water_sensor": "Limpiar sensor de agua caliente",
+          "integration_method": "Método de integración (cuando no se especifica sensor de volumen)",
+          "min_session_volume": "Volumen mínimo de sesión",
+          "min_session_duration": "Duración mínima de sesión (segundos)",
+          "session_gap_tolerance": "Tolerancia de brecha (segundos)",
+          "sessions_use_baseline_as_zero": "Tratar el umbral base como cero para el final de sesión",
+          "sessions_idle_to_close_s": "Inactividad base para cerrar sesión (segundos)",
+          "synthetic_enable": "Habilitar Flujo Sintético (pruebas)",
+          "intelligent_leak_detection_enable": "Habilitar Detección Inteligente de Fugas (experimental)",
+          "low_flow_enable": "Habilitar detección de fugas de bajo flujo",
+          "tank_refill_leak_enable": "Habilitar detección de fugas de rellenado de tanque"
+        },
+        "data_description": {
+          "integration_method": "Solo se usa al calcular el volumen del sensor de flujo. Trapezoidal (recomendado) da mejor precisión en flujo cambiante. Izquierda coincide con contadores externos que marcan una vez por actualización."
+        }
+      },
+      "low_flow": {
+        "title": "Detección de fugas de bajo flujo",
+        "description": "Configure cuándo un flujo bajo sostenido debe considerarse una fuga.",
+        "data": {
+          "low_flow_max_flow": "Tasa máxima de bajo flujo",
+          "low_flow_seed_low_flow_duration_s": "Duración de semilla de bajo flujo (segundos)",
+          "low_flow_min_duration_s": "Duración mínima para activar (segundos)",
+          "low_flow_clear_idle_s": "Limpiar después de inactividad (segundos en flujo cero)",
+          "low_flow_counting_mode": "Modo de conteo",
+          "low_flow_smoothing_window_s": "Ventana de suavizado (segundos)",
+          "low_flow_cooldown_s": "Enfriamiento después de limpiar (segundos)",
+          "low_flow_clear_on_sustained_high_flow_s": "Limpiar después de alto flujo sostenido (segundos, opcional)",
+          "low_flow_baseline_margin_pct": "Margen base (%)",
+          "low_flow_auto_shutoff_on_trigger": "Apagar válvula de corte cuando se detecte fuga"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Elija cómo se acumula el tiempo durante bajo flujo:\n- Cualquier flujo no cero (tiempo real): cuenta todo el tiempo mientras flujo > 0\n- Solo tiempo dentro del rango de bajo flujo: cuenta solo mientras 0 < flujo ≤ máximo bajo flujo\n- Enganche base: una vez sembrado, engancha una base y cuenta mientras el flujo se mantiene cerca de la base; el margen controla la banda permitida"
+        }
+      },
+      "tank_leak": {
+        "title": "Detección de fugas de rellenado de tanque",
+        "description": "Se activa cuando ocurren varios rellenados pequeños similares en poco tiempo — típico de una válvula de inodoro que gotea.",
+        "data": {
+          "tank_refill_min_volume": "Volumen mínimo de rellenado",
+          "tank_refill_max_volume": "Volumen máximo de rellenado (0 = deshabilitado)",
+          "tank_refill_volume_tolerance_pct": "Tolerancia de similitud (%)",
+          "tank_refill_repeat_count": "Recuento de repeticiones para activar",
+          "tank_refill_max_hot_water_pct": "Porcentaje máximo de agua caliente (%)",
+          "tank_refill_window_s": "Ventana para contar repeticiones (segundos)",
+          "tank_refill_clear_idle_s": "Auto-limpiar después de inactividad (segundos)",
+          "tank_refill_cooldown_s": "Enfriamiento después de limpiar (segundos)",
+          "tank_refill_min_duration_s": "Duración mínima de rellenado (segundos, 0 = deshabilitado)",
+          "tank_refill_max_duration_s": "Duración máxima de rellenado (segundos, 0 = deshabilitado)",
+          "tank_refill_auto_shutoff_on_trigger": "Apagar válvula de corte cuando se detecte fuga"
+        }
+      },
+      "intelligent": {
+        "title": "Detección Inteligente de Fugas",
+        "description": "Configuraciones opcionales conscientes de ocupación y modo de aprendizaje.",
+        "data": {
+          "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
+          "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
+          "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
+          "intelligent_learning_enable": "Habilitar modo de aprendizaje"
+        }
+      },
+      "synthetic": {
+        "title": "Flujo Sintético",
+        "description": "Controles de flujo sintético opcionales solo para pruebas.",
+        "data": {
+          "include_synthetic_in_detectors": "Incluir flujo sintético en detectores",
+          "include_synthetic_in_daily": "Incluir sintético en análisis diario"
+        }
+      }
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapezoidal (recomendado)",
+        "left": "Suma de Riemann izquierda"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Cualquier flujo no cero (tiempo real)",
+        "in_range_only": "Solo tiempo dentro del rango de bajo flujo",
+        "baseline_latch": "Modo de enganche base"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Base esperada de bajo flujo"
+      },
+      "leak_sensitivity": {
+        "name": "Sensibilidad de alerta de fuga"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Flujo sintético (gpm)"
+      }
+    }
+  }
+}

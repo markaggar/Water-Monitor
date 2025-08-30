@@ -55,6 +55,7 @@
           "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
           "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
           "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_max_hot_water_pct": "Maximum hot water percentage (%)",
           "tank_refill_window_s": "Window to count repeats (seconds)",
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
           "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
@@ -67,6 +68,7 @@
           "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
           "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
           "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_max_hot_water_pct": "Sessions with hot water percentage above this will be ignored.",
           "tank_refill_window_s": "Time window to collect refills for comparison.",
           "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
           "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
@@ -154,6 +156,7 @@
           "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
           "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
           "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_max_hot_water_pct": "Maximum hot water percentage (%)",
           "tank_refill_window_s": "Window to count repeats (seconds)",
           "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
           "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
@@ -166,6 +169,7 @@
           "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
           "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
           "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_max_hot_water_pct": "Sessions with hot water percentage above this will be ignored.",
           "tank_refill_window_s": "Time window to collect refills for comparison.",
           "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
           "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
@@ -191,6 +195,21 @@
         "data_description": {
           "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
         }
+      }
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapezoidal (recommended)",
+        "left": "Left Riemann sum"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Any non-zero flow (wall clock)",
+        "in_range_only": "Only time within low-flow range",
+        "baseline_latch": "Baseline latch mode"
       }
     }
   },

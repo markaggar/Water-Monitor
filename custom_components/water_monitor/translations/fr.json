@@ -1,0 +1,216 @@
+{
+  "title": "Moniteur d'Eau",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer le Moniteur d'Eau",
+        "description": "Configurez vos capteurs et règles de suivi de session.",
+        "data": {
+          "sensor_prefix": "Préfixe du nom du capteur",
+          "flow_sensor": "Capteur de débit",
+          "volume_sensor": "Capteur de volume (optionnel)",
+          "hot_water_sensor": "Capteur binaire d'eau chaude (optionnel)",
+          "water_shutoff_entity": "Vanne d'arrêt d'eau (optionnel)",
+          "clear_water_shutoff_entity": "Effacer la vanne d'arrêt d'eau",
+          "clear_volume_sensor": "Effacer le capteur de volume",
+          "clear_hot_water_sensor": "Effacer le capteur d'eau chaude",
+          "integration_method": "Méthode d'intégration (quand aucun capteur de volume spécifié)",
+          "min_session_volume": "Volume minimum de session",
+          "min_session_duration": "Durée minimum de session (secondes)",
+          "session_gap_tolerance": "Tolérance d'écart (secondes)",
+          "sessions_use_baseline_as_zero": "Traiter le seuil de base comme zéro pour la fin de session",
+          "sessions_idle_to_close_s": "Inactivité de base pour fermer la session (secondes)",
+          "synthetic_enable": "Activer le Débit Synthétique (test)",
+          "intelligent_leak_detection_enable": "Activer la Détection Intelligente de Fuites (expérimental)",
+          "low_flow_enable": "Activer la détection de fuites de faible débit",
+          "tank_refill_leak_enable": "Activer la détection de fuites de remplissage de réservoir"
+        },
+        "data_description": {
+          "integration_method": "Utilisé uniquement lors du calcul du volume à partir du capteur de débit. Trapézoïdal (recommandé) donne une meilleure précision sur un débit changeant. Gauche correspond aux compteurs externes qui s'incrémentent une fois par mise à jour."
+        }
+      },
+      "synthetic": {
+        "title": "Débit Synthétique",
+        "description": "Contrôles de débit synthétique optionnels pour les tests uniquement.",
+        "data": {
+          "include_synthetic_in_detectors": "Inclure le débit synthétique dans les détecteurs",
+          "include_synthetic_in_daily": "Inclure synthétique dans l'analyse quotidienne"
+        }
+      },
+      "intelligent": {
+        "title": "Détection Intelligente de Fuites",
+        "description": "Paramètres optionnels conscients de l'occupation et mode d'apprentissage.",
+        "data": {
+          "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
+          "occupancy_state_away": "États d'absence (séparés par des virgules, optionnel)",
+          "occupancy_state_vacation": "États de vacances (séparés par des virgules, optionnel)",
+          "intelligent_learning_enable": "Activer le mode d'apprentissage"
+        }
+      },
+      "tank_leak": {
+        "title": "Détection de fuites de remplissage de réservoir",
+        "description": "Se déclenche lorsque plusieurs petits remplissages similaires se produisent en peu de temps — typique d'un clapet de toilette qui fuit.",
+        "data": {
+          "tank_refill_min_volume": "Volume minimum de remplissage",
+          "tank_refill_max_volume": "Volume maximum de remplissage (0 = désactivé)",
+          "tank_refill_volume_tolerance_pct": "Tolérance de similarité (%)",
+          "tank_refill_repeat_count": "Nombre de répétitions pour déclencher",
+          "tank_refill_max_hot_water_pct": "Pourcentage maximum d'eau chaude (%)",
+          "tank_refill_window_s": "Fenêtre pour compter les répétitions (secondes)",
+          "tank_refill_clear_idle_s": "Auto-effacement après inactivité (secondes)",
+          "tank_refill_cooldown_s": "Refroidissement après effacement (secondes)",
+          "tank_refill_min_duration_s": "Durée minimum de remplissage (secondes, 0 = désactivé)",
+          "tank_refill_max_duration_s": "Durée maximum de remplissage (secondes, 0 = désactivé)",
+          "tank_refill_auto_shutoff_on_trigger": "Éteindre la vanne d'arrêt quand une fuite est détectée"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignorer les remplissages plus petits que ceci.",
+          "tank_refill_max_volume": "Ignorer les remplissages plus grands que ceci (0 désactive la limite).",
+          "tank_refill_volume_tolerance_pct": "À quel point les volumes doivent être similaires pour être comptés ensemble.",
+          "tank_refill_repeat_count": "Nombre de remplissages similaires dans la fenêtre requis pour déclencher.",
+          "tank_refill_max_hot_water_pct": "Les sessions avec un pourcentage d'eau chaude au-dessus de ceci seront ignorées.",
+          "tank_refill_window_s": "Fenêtre de temps pour collecter les remplissages pour comparaison.",
+          "tank_refill_clear_idle_s": "Temps sans remplissages correspondants avant que l'alerte s'efface.",
+          "tank_refill_cooldown_s": "Supprimer le redéclenchement pendant ce temps après effacement.",
+          "tank_refill_min_duration_s": "Ignorer les remplissages plus courts que ceci (0 désactive la protection).",
+          "tank_refill_max_duration_s": "Ignorer les remplissages plus longs que ceci (0 désactive la protection)."
+        }
+      },
+      "low_flow": {
+        "title": "Détection de fuites de faible débit",
+        "description": "Configurez quand un faible débit soutenu doit être considéré comme une fuite.",
+        "data": {
+          "low_flow_max_flow": "Débit maximum de faible débit",
+          "low_flow_seed_low_flow_duration_s": "Durée d'amorçage de faible débit (secondes)",
+          "low_flow_min_duration_s": "Durée minimum pour déclencher (secondes)",
+          "low_flow_clear_idle_s": "Effacer après inactivité (secondes à débit zéro)",
+          "low_flow_counting_mode": "Mode de comptage",
+          "low_flow_smoothing_window_s": "Fenêtre de lissage (secondes)",
+          "low_flow_cooldown_s": "Refroidissement après effacement (secondes)",
+          "low_flow_clear_on_sustained_high_flow_s": "Effacer après débit élevé soutenu (secondes, optionnel)",
+          "low_flow_baseline_margin_pct": "Marge de base (%)",
+          "low_flow_auto_shutoff_on_trigger": "Éteindre la vanne d'arrêt quand une fuite est détectée"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choisissez comment le temps est accumulé pendant le faible débit :\n- Tout débit non nul (temps horloge) : compte tout le temps pendant que débit > 0\n- Seulement le temps dans la plage de faible débit : compte seulement pendant que 0 < débit ≤ débit faible maximum\n- Verrouillage de base : une fois amorcé, verrouille une base et compte tant que le débit reste près de la base ; la marge contrôle la bande autorisée"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entité non trouvée"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options du Moniteur d'Eau",
+        "description": "Mettez à jour vos capteurs, règles de session et paramètres de détection de fuites.",
+        "data": {
+          "sensor_prefix": "Préfixe du nom du capteur",
+          "flow_sensor": "Capteur de débit",
+          "volume_sensor": "Capteur de volume (optionnel)",
+          "hot_water_sensor": "Capteur binaire d'eau chaude (optionnel)",
+          "water_shutoff_entity": "Vanne d'arrêt d'eau (optionnel)",
+          "clear_water_shutoff_entity": "Effacer la vanne d'arrêt d'eau",
+          "clear_volume_sensor": "Effacer le capteur de volume",
+          "clear_hot_water_sensor": "Effacer le capteur d'eau chaude",
+          "integration_method": "Méthode d'intégration (quand aucun capteur de volume spécifié)",
+          "min_session_volume": "Volume minimum de session",
+          "min_session_duration": "Durée minimum de session (secondes)",
+          "session_gap_tolerance": "Tolérance d'écart (secondes)",
+          "sessions_use_baseline_as_zero": "Traiter le seuil de base comme zéro pour la fin de session",
+          "sessions_idle_to_close_s": "Inactivité de base pour fermer la session (secondes)",
+          "synthetic_enable": "Activer le Débit Synthétique (test)",
+          "intelligent_leak_detection_enable": "Activer la Détection Intelligente de Fuites (expérimental)",
+          "low_flow_enable": "Activer la détection de fuites de faible débit",
+          "tank_refill_leak_enable": "Activer la détection de fuites de remplissage de réservoir"
+        },
+        "data_description": {
+          "integration_method": "Utilisé uniquement lors du calcul du volume à partir du capteur de débit. Trapézoïdal (recommandé) donne une meilleure précision sur un débit changeant. Gauche correspond aux compteurs externes qui s'incrémentent une fois par mise à jour."
+        }
+      },
+      "low_flow": {
+        "title": "Détection de fuites de faible débit",
+        "description": "Configurez quand un faible débit soutenu doit être considéré comme une fuite.",
+        "data": {
+          "low_flow_max_flow": "Débit maximum de faible débit",
+          "low_flow_seed_low_flow_duration_s": "Durée d'amorçage de faible débit (secondes)",
+          "low_flow_min_duration_s": "Durée minimum pour déclencher (secondes)",
+          "low_flow_clear_idle_s": "Effacer après inactivité (secondes à débit zéro)",
+          "low_flow_counting_mode": "Mode de comptage",
+          "low_flow_smoothing_window_s": "Fenêtre de lissage (secondes)",
+          "low_flow_cooldown_s": "Refroidissement après effacement (secondes)",
+          "low_flow_clear_on_sustained_high_flow_s": "Effacer après débit élevé soutenu (secondes, optionnel)",
+          "low_flow_baseline_margin_pct": "Marge de base (%)",
+          "low_flow_auto_shutoff_on_trigger": "Éteindre la vanne d'arrêt quand une fuite est détectée"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choisissez comment le temps est accumulé pendant le faible débit :\n- Tout débit non nul (temps horloge) : compte tout le temps pendant que débit > 0\n- Seulement le temps dans la plage de faible débit : compte seulement pendant que 0 < débit ≤ débit faible maximum\n- Verrouillage de base : une fois amorcé, verrouille une base et compte tant que le débit reste près de la base ; la marge contrôle la bande autorisée"
+        }
+      },
+      "tank_leak": {
+        "title": "Détection de fuites de remplissage de réservoir",
+        "description": "Se déclenche lorsque plusieurs petits remplissages similaires se produisent en peu de temps — typique d'un clapet de toilette qui fuit.",
+        "data": {
+          "tank_refill_min_volume": "Volume minimum de remplissage",
+          "tank_refill_max_volume": "Volume maximum de remplissage (0 = désactivé)",
+          "tank_refill_volume_tolerance_pct": "Tolérance de similarité (%)",
+          "tank_refill_repeat_count": "Nombre de répétitions pour déclencher",
+          "tank_refill_max_hot_water_pct": "Pourcentage maximum d'eau chaude (%)",
+          "tank_refill_window_s": "Fenêtre pour compter les répétitions (secondes)",
+          "tank_refill_clear_idle_s": "Auto-effacement après inactivité (secondes)",
+          "tank_refill_cooldown_s": "Refroidissement après effacement (secondes)",
+          "tank_refill_min_duration_s": "Durée minimum de remplissage (secondes, 0 = désactivé)",
+          "tank_refill_max_duration_s": "Durée maximum de remplissage (secondes, 0 = désactivé)",
+          "tank_refill_auto_shutoff_on_trigger": "Éteindre la vanne d'arrêt quand une fuite est détectée"
+        }
+      },
+      "intelligent": {
+        "title": "Détection Intelligente de Fuites",
+        "description": "Paramètres optionnels conscients de l'occupation et mode d'apprentissage.",
+        "data": {
+          "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
+          "occupancy_state_away": "États d'absence (séparés par des virgules, optionnel)",
+          "occupancy_state_vacation": "États de vacances (séparés par des virgules, optionnel)",
+          "intelligent_learning_enable": "Activer le mode d'apprentissage"
+        }
+      },
+      "synthetic": {
+        "title": "Débit Synthétique",
+        "description": "Contrôles de débit synthétique optionnels pour les tests uniquement.",
+        "data": {
+          "include_synthetic_in_detectors": "Inclure le débit synthétique dans les détecteurs",
+          "include_synthetic_in_daily": "Inclure synthétique dans l'analyse quotidienne"
+        }
+      }
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapézoïdal (recommandé)",
+        "left": "Somme de Riemann gauche"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Tout débit non nul (temps horloge)",
+        "in_range_only": "Seulement le temps dans la plage de faible débit",
+        "baseline_latch": "Mode de verrouillage de base"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Base attendue de faible débit"
+      },
+      "leak_sensitivity": {
+        "name": "Sensibilité d'alerte de fuite"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Débit synthétique (gpm)"
+      }
+    }
+  }
+}

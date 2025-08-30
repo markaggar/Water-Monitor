@@ -129,6 +129,7 @@ CONF_TANK_LEAK_CLEAR_IDLE_S = "tank_refill_clear_idle_s"  # time with no matchin
 CONF_TANK_LEAK_COOLDOWN_S = "tank_refill_cooldown_s"  # suppress re-triggering after clear
 CONF_TANK_LEAK_MIN_REFILL_DURATION_S = "tank_refill_min_duration_s"  # optional: ignore events shorter than this (0 disables)
 CONF_TANK_LEAK_MAX_REFILL_DURATION_S = "tank_refill_max_duration_s"  # optional: ignore events longer than this (0 disables)
+CONF_TANK_LEAK_MAX_HOT_WATER_PCT = "tank_refill_max_hot_water_pct"  # maximum hot water % to be considered a refill
 
 # Extend defaults after keys are declared
 DEFAULTS.update({
@@ -142,6 +143,7 @@ DEFAULTS.update({
     CONF_TANK_LEAK_COOLDOWN_S: 0,
     CONF_TANK_LEAK_MIN_REFILL_DURATION_S: 0,
     CONF_TANK_LEAK_MAX_REFILL_DURATION_S: 0,
+    CONF_TANK_LEAK_MAX_HOT_WATER_PCT: 25.0,  # filter out sessions with high hot water usage
 })
 
 

@@ -1,0 +1,216 @@
+{
+  "title": "Wasser Monitor",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Wasser Monitor einrichten",
+        "description": "Konfigurieren Sie Ihre Sensoren und Sitzungsverfolgungsregeln.",
+        "data": {
+          "sensor_prefix": "Sensor-Namenspräfix",
+          "flow_sensor": "Durchflusssensor",
+          "volume_sensor": "Volumensensor (optional)",
+          "hot_water_sensor": "Warmwasser-Binärsensor (optional)",
+          "water_shutoff_entity": "Wasserabsperrventil (optional)",
+          "clear_water_shutoff_entity": "Wasserabsperrventil löschen",
+          "clear_volume_sensor": "Volumensensor löschen",
+          "clear_hot_water_sensor": "Warmwassersensor löschen",
+          "integration_method": "Integrationsmethode (wenn kein Volumensensor angegeben)",
+          "min_session_volume": "Minimales Sitzungsvolumen",
+          "min_session_duration": "Minimale Sitzungsdauer (Sekunden)",
+          "session_gap_tolerance": "Lückentoleranz (Sekunden)",
+          "sessions_use_baseline_as_zero": "Grundlinienschwelle als Null für Sitzungsende behandeln",
+          "sessions_idle_to_close_s": "Grundlinien-Inaktivität zum Schließen der Sitzung (Sekunden)",
+          "synthetic_enable": "Synthetischen Durchfluss aktivieren (Test)",
+          "intelligent_leak_detection_enable": "Intelligente Leckerkennung aktivieren (experimentell)",
+          "low_flow_enable": "Niedrigdurchfluss-Leckerkennung aktivieren",
+          "tank_refill_leak_enable": "Tank-Nachfüll-Leckerkennung aktivieren"
+        },
+        "data_description": {
+          "integration_method": "Wird nur bei der Berechnung des Volumens aus dem Durchflusssensor verwendet. Trapezförmig (empfohlen) bietet bessere Genauigkeit bei sich änderndem Durchfluss. Links entspricht externen Zählern, die einmal pro Update ticken."
+        }
+      },
+      "synthetic": {
+        "title": "Synthetischer Durchfluss",
+        "description": "Optionale synthetische Durchflusssteuerungen nur für Tests.",
+        "data": {
+          "include_synthetic_in_detectors": "Synthetischen Durchfluss in Detektoren einbeziehen",
+          "include_synthetic_in_daily": "Synthetisch in tägliche Analyse einbeziehen"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligente Leckerkennung",
+        "description": "Optionale belegungsbewusste Einstellungen und Lernmodus.",
+        "data": {
+          "occupancy_mode_entity": "Belegungsmodus input_select (optional)",
+          "occupancy_state_away": "Abwesenheitszustände (durch Komma getrennt, optional)",
+          "occupancy_state_vacation": "Urlaubszustände (durch Komma getrennt, optional)",
+          "intelligent_learning_enable": "Lernmodus aktivieren"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank-Nachfüll-Leckerkennung",
+        "description": "Löst aus, wenn mehrere ähnliche kleine Nachfüllungen in kurzer Zeit auftreten — typisch für eine undichte Toilettenspülklappe.",
+        "data": {
+          "tank_refill_min_volume": "Minimales Nachfüllvolumen",
+          "tank_refill_max_volume": "Maximales Nachfüllvolumen (0 = deaktiviert)",
+          "tank_refill_volume_tolerance_pct": "Ähnlichkeitstoleranz (%)",
+          "tank_refill_repeat_count": "Wiederholungszahl zum Auslösen",
+          "tank_refill_max_hot_water_pct": "Maximaler Warmwasseranteil (%)",
+          "tank_refill_window_s": "Fenster zum Zählen von Wiederholungen (Sekunden)",
+          "tank_refill_clear_idle_s": "Auto-Löschung nach Inaktivität (Sekunden)",
+          "tank_refill_cooldown_s": "Abkühlung nach Löschung (Sekunden)",
+          "tank_refill_min_duration_s": "Minimale Nachfülldauer (Sekunden, 0 = deaktiviert)",
+          "tank_refill_max_duration_s": "Maximale Nachfülldauer (Sekunden, 0 = deaktiviert)",
+          "tank_refill_auto_shutoff_on_trigger": "Absperrventil bei Leckerkennung ausschalten"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Nachfüllungen kleiner als dies ignorieren.",
+          "tank_refill_max_volume": "Nachfüllungen größer als dies ignorieren (0 deaktiviert die Obergrenze).",
+          "tank_refill_volume_tolerance_pct": "Wie ähnlich Volumina sein müssen, um zusammen gezählt zu werden.",
+          "tank_refill_repeat_count": "Anzahl ähnlicher Nachfüllungen innerhalb des Fensters, die zum Auslösen erforderlich sind.",
+          "tank_refill_max_hot_water_pct": "Sitzungen mit Warmwasseranteil darüber werden ignoriert.",
+          "tank_refill_window_s": "Zeitfenster zum Sammeln von Nachfüllungen für Vergleich.",
+          "tank_refill_clear_idle_s": "Zeit ohne passende Nachfüllungen, bevor der Alarm gelöscht wird.",
+          "tank_refill_cooldown_s": "Wiederauslösung für diese Zeit nach Löschung unterdrücken.",
+          "tank_refill_min_duration_s": "Nachfüllungen kürzer als dies ignorieren (0 deaktiviert den Schutz).",
+          "tank_refill_max_duration_s": "Nachfüllungen länger als dies ignorieren (0 deaktiviert den Schutz)."
+        }
+      },
+      "low_flow": {
+        "title": "Niedrigdurchfluss-Leckerkennung",
+        "description": "Konfigurieren Sie, wann ein anhaltender niedriger Durchfluss als Leck betrachtet werden soll.",
+        "data": {
+          "low_flow_max_flow": "Maximale Niedrigdurchflussrate",
+          "low_flow_seed_low_flow_duration_s": "Seed-Niedrigdurchflussdauer (Sekunden)",
+          "low_flow_min_duration_s": "Minimale Dauer zum Auslösen (Sekunden)",
+          "low_flow_clear_idle_s": "Nach Inaktivität löschen (Sekunden bei Nulldurchfluss)",
+          "low_flow_counting_mode": "Zählmodus",
+          "low_flow_smoothing_window_s": "Glättungsfenster (Sekunden)",
+          "low_flow_cooldown_s": "Abkühlung nach Löschung (Sekunden)",
+          "low_flow_clear_on_sustained_high_flow_s": "Nach anhaltendem hohem Durchfluss löschen (Sekunden, optional)",
+          "low_flow_baseline_margin_pct": "Grundlinienspielraum (%)",
+          "low_flow_auto_shutoff_on_trigger": "Absperrventil bei Leckerkennung ausschalten"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Wählen Sie, wie Zeit während Niedrigdurchfluss akkumuliert wird:\n- Jeder Nicht-Null-Durchfluss (Wanduhrzeit): zählt alle Zeit während Durchfluss > 0\n- Nur Zeit innerhalb des Niedrigdurchflussbereichs: zählt nur während 0 < Durchfluss ≤ maximaler Niedrigdurchfluss\n- Grundlinien-Verriegelung: einmal gesät, verriegelt eine Grundlinie und zählt, während der Durchfluss nahe der Grundlinie bleibt; Spielraum steuert das erlaubte Band"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entität nicht gefunden"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wasser Monitor Optionen",
+        "description": "Aktualisieren Sie Ihre Sensoren, Sitzungsregeln und Leckerkennungseinstellungen.",
+        "data": {
+          "sensor_prefix": "Sensor-Namenspräfix",
+          "flow_sensor": "Durchflusssensor",
+          "volume_sensor": "Volumensensor (optional)",
+          "hot_water_sensor": "Warmwasser-Binärsensor (optional)",
+          "water_shutoff_entity": "Wasserabsperrventil (optional)",
+          "clear_water_shutoff_entity": "Wasserabsperrventil löschen",
+          "clear_volume_sensor": "Volumensensor löschen",
+          "clear_hot_water_sensor": "Warmwassersensor löschen",
+          "integration_method": "Integrationsmethode (wenn kein Volumensensor angegeben)",
+          "min_session_volume": "Minimales Sitzungsvolumen",
+          "min_session_duration": "Minimale Sitzungsdauer (Sekunden)",
+          "session_gap_tolerance": "Lückentoleranz (Sekunden)",
+          "sessions_use_baseline_as_zero": "Grundlinienschwelle als Null für Sitzungsende behandeln",
+          "sessions_idle_to_close_s": "Grundlinien-Inaktivität zum Schließen der Sitzung (Sekunden)",
+          "synthetic_enable": "Synthetischen Durchfluss aktivieren (Test)",
+          "intelligent_leak_detection_enable": "Intelligente Leckerkennung aktivieren (experimentell)",
+          "low_flow_enable": "Niedrigdurchfluss-Leckerkennung aktivieren",
+          "tank_refill_leak_enable": "Tank-Nachfüll-Leckerkennung aktivieren"
+        },
+        "data_description": {
+          "integration_method": "Wird nur bei der Berechnung des Volumens aus dem Durchflusssensor verwendet. Trapezförmig (empfohlen) bietet bessere Genauigkeit bei sich änderndem Durchfluss. Links entspricht externen Zählern, die einmal pro Update ticken."
+        }
+      },
+      "low_flow": {
+        "title": "Niedrigdurchfluss-Leckerkennung",
+        "description": "Konfigurieren Sie, wann ein anhaltender niedriger Durchfluss als Leck betrachtet werden soll.",
+        "data": {
+          "low_flow_max_flow": "Maximale Niedrigdurchflussrate",
+          "low_flow_seed_low_flow_duration_s": "Seed-Niedrigdurchflussdauer (Sekunden)",
+          "low_flow_min_duration_s": "Minimale Dauer zum Auslösen (Sekunden)",
+          "low_flow_clear_idle_s": "Nach Inaktivität löschen (Sekunden bei Nulldurchfluss)",
+          "low_flow_counting_mode": "Zählmodus",
+          "low_flow_smoothing_window_s": "Glättungsfenster (Sekunden)",
+          "low_flow_cooldown_s": "Abkühlung nach Löschung (Sekunden)",
+          "low_flow_clear_on_sustained_high_flow_s": "Nach anhaltendem hohem Durchfluss löschen (Sekunden, optional)",
+          "low_flow_baseline_margin_pct": "Grundlinienspielraum (%)",
+          "low_flow_auto_shutoff_on_trigger": "Absperrventil bei Leckerkennung ausschalten"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Wählen Sie, wie Zeit während Niedrigdurchfluss akkumuliert wird:\n- Jeder Nicht-Null-Durchfluss (Wanduhrzeit): zählt alle Zeit während Durchfluss > 0\n- Nur Zeit innerhalb des Niedrigdurchflussbereichs: zählt nur während 0 < Durchfluss ≤ maximaler Niedrigdurchfluss\n- Grundlinien-Verriegelung: einmal gesät, verriegelt eine Grundlinie und zählt, während der Durchfluss nahe der Grundlinie bleibt; Spielraum steuert das erlaubte Band"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank-Nachfüll-Leckerkennung",
+        "description": "Löst aus, wenn mehrere ähnliche kleine Nachfüllungen in kurzer Zeit auftreten — typisch für eine undichte Toilettenspülklappe.",
+        "data": {
+          "tank_refill_min_volume": "Minimales Nachfüllvolumen",
+          "tank_refill_max_volume": "Maximales Nachfüllvolumen (0 = deaktiviert)",
+          "tank_refill_volume_tolerance_pct": "Ähnlichkeitstoleranz (%)",
+          "tank_refill_repeat_count": "Wiederholungszahl zum Auslösen",
+          "tank_refill_max_hot_water_pct": "Maximaler Warmwasseranteil (%)",
+          "tank_refill_window_s": "Fenster zum Zählen von Wiederholungen (Sekunden)",
+          "tank_refill_clear_idle_s": "Auto-Löschung nach Inaktivität (Sekunden)",
+          "tank_refill_cooldown_s": "Abkühlung nach Löschung (Sekunden)",
+          "tank_refill_min_duration_s": "Minimale Nachfülldauer (Sekunden, 0 = deaktiviert)",
+          "tank_refill_max_duration_s": "Maximale Nachfülldauer (Sekunden, 0 = deaktiviert)",
+          "tank_refill_auto_shutoff_on_trigger": "Absperrventil bei Leckerkennung ausschalten"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligente Leckerkennung",
+        "description": "Optionale belegungsbewusste Einstellungen und Lernmodus.",
+        "data": {
+          "occupancy_mode_entity": "Belegungsmodus input_select (optional)",
+          "occupancy_state_away": "Abwesenheitszustände (durch Komma getrennt, optional)",
+          "occupancy_state_vacation": "Urlaubszustände (durch Komma getrennt, optional)",
+          "intelligent_learning_enable": "Lernmodus aktivieren"
+        }
+      },
+      "synthetic": {
+        "title": "Synthetischer Durchfluss",
+        "description": "Optionale synthetische Durchflusssteuerungen nur für Tests.",
+        "data": {
+          "include_synthetic_in_detectors": "Synthetischen Durchfluss in Detektoren einbeziehen",
+          "include_synthetic_in_daily": "Synthetisch in tägliche Analyse einbeziehen"
+        }
+      }
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapezförmig (empfohlen)",
+        "left": "Linke Riemann-Summe"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Jeder Nicht-Null-Durchfluss (Wanduhrzeit)",
+        "in_range_only": "Nur Zeit innerhalb des Niedrigdurchflussbereichs",
+        "baseline_latch": "Grundlinien-Verriegelungsmodus"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Erwartete Niedrigdurchfluss-Grundlinie"
+      },
+      "leak_sensitivity": {
+        "name": "Leck-Alarm-Empfindlichkeit"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Synthetischer Durchfluss (gpm)"
+      }
+    }
+  }
+}

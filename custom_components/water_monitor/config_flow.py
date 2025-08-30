@@ -204,10 +204,11 @@ def _main_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
             )] = ha_selector({
                 "select": {
                     "options": [
-                        {"label": "Trapezoidal (recommended)", "value": INTEGRATION_METHOD_TRAPEZOIDAL},
-                        {"label": "Left (match external counters)", "value": INTEGRATION_METHOD_LEFT}
+                        INTEGRATION_METHOD_TRAPEZOIDAL,
+                        INTEGRATION_METHOD_LEFT
                     ],
-                    "mode": "list"
+                    "mode": "list",
+                    "translation_key": "integration_method"
                 }
             })
         else:
@@ -256,11 +257,12 @@ def _low_flow_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema:
         )] = ha_selector({
             "select": {
                 "options": [
-                    {"label": "Any non-zero flow (wall clock)", "value": COUNTING_MODE_NONZERO},
-                    {"label": "Only time within low-flow range", "value": COUNTING_MODE_IN_RANGE},
-                    {"label": "Baseline latch (with optional expected baseline)", "value": COUNTING_MODE_BASELINE_LATCH}
+                    COUNTING_MODE_NONZERO,
+                    COUNTING_MODE_IN_RANGE,
+                    COUNTING_MODE_BASELINE_LATCH
                 ],
-                "mode": "list"
+                "mode": "list",
+                "translation_key": "low_flow_counting_mode"
             }
         })
     else:

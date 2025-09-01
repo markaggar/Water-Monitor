@@ -69,10 +69,17 @@ from .const import (
 # New intelligent detection constants were introduced recently; fall back to string keys
 # if running against an older const.py in a live HA instance.
 try:
-    from .const import CONF_INTEL_DETECT_ENABLE, CONF_INTEL_LEARNING_ENABLE  # type: ignore
+    from .const import (
+        CONF_INTEL_DETECT_ENABLE, 
+        CONF_INTEL_LEARNING_ENABLE,
+        CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING,
+        CONF_INTEL_MINIMUM_LEARNING_DAYS
+    )  # type: ignore
 except Exception:  # pragma: no cover - compatibility with older installs
     CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"  # type: ignore
     CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"  # type: ignore
+    CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING = "intel_suppress_during_learning"  # type: ignore
+    CONF_INTEL_MINIMUM_LEARNING_DAYS = "intel_minimum_learning_days"  # type: ignore
 
 # Try to use HA selectors; fall back to plain types if not available
 HAS_SELECTORS = True
@@ -388,6 +395,17 @@ def _intelligent_schema(existing: Optional[Dict[str, Any]] = None) -> vol.Schema
         CONF_INTEL_LEARNING_ENABLE,
     default=ex.get(CONF_INTEL_LEARNING_ENABLE, DEFAULTS.get(CONF_INTEL_LEARNING_ENABLE, True))
     )] = s_bool()
+
+    # Notification control fields
+    fields[vol.Required(
+        CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING,
+        default=ex.get(CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING, DEFAULTS.get(CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING, True))
+    )] = s_bool()
+    
+    fields[vol.Required(
+        CONF_INTEL_MINIMUM_LEARNING_DAYS,
+        default=ex.get(CONF_INTEL_MINIMUM_LEARNING_DAYS, DEFAULTS.get(CONF_INTEL_MINIMUM_LEARNING_DAYS, 14))
+    )] = s_int(min_=1, step=1)
 
     # Auto-shutoff toggle (only meaningful when valve is configured)
     valve_set = bool(ex.get(CONF_WATER_SHUTOFF_ENTITY))
@@ -738,6 +756,8 @@ class WaterMonitorOptionsFlow(config_entries.OptionsFlow):
                 CONF_OCC_STATE_AWAY,
                 CONF_OCC_STATE_VACATION,
                 CONF_INTEL_LEARNING_ENABLE,
+                CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING,
+                CONF_INTEL_MINIMUM_LEARNING_DAYS,
                 CONF_WATER_SHUTOFF_ENTITY,
                 CONF_INTEL_AUTO_SHUTOFF,
             ]

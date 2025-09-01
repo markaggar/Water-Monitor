@@ -39,12 +39,14 @@
       },
       "intelligent": {
         "title": "Intelligent Leak Detection",
-        "description": "Optional occupancy-aware settings and learning mode.",
+        "description": "Optional occupancy-aware settings and learning mode configuration.",
         "data": {
           "occupancy_mode_entity": "Occupancy mode input_select (optional)",
           "occupancy_state_away": "Away states (comma-separated, optional)",
           "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
-          "intelligent_learning_enable": "Enable learning mode"
+          "intelligent_learning_enable": "Enable learning mode",
+          "intel_suppress_during_learning": "Suppress detection during learning period",
+          "intel_minimum_learning_days": "Minimum learning days before detection"
         }
       },
       "tank_leak": {
@@ -139,12 +141,15 @@
       },
       "intelligent": {
         "title": "Intelligent Leak Detection options",
-        "description": "Adjust occupancy-aware settings and learning mode.",
+        "description": "Adjust occupancy-aware settings, learning mode, and notification preferences.",
         "data": {
           "occupancy_mode_entity": "Occupancy mode input_select (optional)",
           "occupancy_state_away": "Away states (comma-separated, optional)",
           "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
           "intelligent_learning_enable": "Enable learning mode",
+          "intel_suppress_during_learning": "Suppress notifications during learning period",
+          "intel_minimum_learning_days": "Minimum learning days before notifications",
+          "intel_suppress_high_usage_notifications": "Suppress high usage notifications",
           "intelligent_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
         }
       },

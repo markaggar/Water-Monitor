@@ -24,6 +24,9 @@ CONF_OCC_STATE_RETURNING = "occupancy_state_returning"
 # Intelligent Leak Detection (experimental)
 CONF_INTEL_DETECT_ENABLE = "intelligent_leak_detection_enable"
 CONF_INTEL_LEARNING_ENABLE = "intelligent_learning_enable"
+# Notification control
+CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING = "intel_suppress_during_learning"
+CONF_INTEL_MINIMUM_LEARNING_DAYS = "intel_minimum_learning_days"
 
 # Synthetic flow handling
 # Master enable; when False, synthetic isn't used anywhere even if sub-options are set.
@@ -89,6 +92,8 @@ DEFAULTS = {
     # Intelligent detector defaults
     CONF_INTEL_DETECT_ENABLE: False,
     CONF_INTEL_LEARNING_ENABLE: True,
+    CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING: True,  # Prevent triggering during learning period
+    CONF_INTEL_MINIMUM_LEARNING_DAYS: 14,  # Days of data needed before leak detection is enabled
     # Synthetic handling defaults
     CONF_SYNTHETIC_ENABLE: False,
     CONF_INCLUDE_SYNTHETIC_IN_DETECTORS: False,

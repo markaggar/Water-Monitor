@@ -1,6 +1,17 @@
 {
   "title": "Monitor de Agua",
-  "config": {
+  "co      "intelligent": {
+        "title": "Detección Inteligente de Fugas",
+        "description": "Configuraciones opcionales de ocupación y modo de aprendizaje.",
+        "data": {
+          "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
+          "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
+          "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
+          "intelligent_learning_enable": "Habilitar modo de aprendizaje",
+          "intel_suppress_during_learning": "Suprimir detección durante período de aprendizaje",
+          "intel_minimum_learning_days": "Días mínimos de aprendizaje antes de detección"
+        }
+      },
     "step": {
       "user": {
         "title": "Configurar Monitor de Agua",

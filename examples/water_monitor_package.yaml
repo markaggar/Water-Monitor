@@ -12,12 +12,17 @@
 # This package auto-discovers Water Monitor leak detectors, valve + context,
 # and session metrics. It sends actionable notifications, supports snooze,
 # synthetic/test mode handling, valve reminders, high-usage alerts, and
-# upstream health degradation notices.
+# upstream health degradation notices with detailed sensor status.
+# 
+# New features:
+# - Individual notification controls for intelligent leak and high usage alerts
+# - Enhanced upstream health notifications with specific sensor details
 ###############################################################################
 
 #############################
 # Helpers (user adjustable) #
 #############################
+# Core notification controls
 input_boolean:
   water_monitor_notifications_enabled:
     name: Water Monitor Notifications Enabled
@@ -27,6 +32,16 @@ input_boolean:
     name: Water Monitor Test Mode
     icon: mdi:flask
     initial: false
+
+# Specific notification type controls    
+  water_monitor_intelligent_leak_notifications:
+    name: Intelligent Leak Notifications
+    icon: mdi:water-alert
+    initial: true
+  water_monitor_high_usage_notifications:
+    name: High Usage Notifications  
+    icon: mdi:water-pump
+    initial: true
 
 input_number:
   water_monitor_large_session_volume:
@@ -289,6 +304,9 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
+              # Check specific notification helpers for intelligent leak
+              - condition: >
+                  {{ not trigger.entity_id.endswith('_intelligent_leak') or is_state('input_boolean.water_monitor_intelligent_leak_notifications', 'on') }}
               - variables:
                   notif_tag: "water_monitor_{{ trigger.entity_id | replace('.','_') }}"
                   leak_name: >
@@ -357,6 +375,9 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
+              # Check specific notification helpers for intelligent leak clearing
+              - condition: >
+                  {{ not trigger.entity_id.endswith('_intelligent_leak') or is_state('input_boolean.water_monitor_intelligent_leak_notifications', 'on') }}
               - action: "{{ notify_service }}"
                 data:
                   title: "Leak Cleared ({{ leak_type }})"
@@ -389,25 +410,56 @@ automation:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
+              - variables:
+                  unavailable_sensors: "{{ trigger.to_state.attributes.get('unavailable_entities', []) }}"
+                  unknown_sensors: "{{ trigger.to_state.attributes.get('unknown_entities', []) }}"
+                  name_mapping: "{{ trigger.to_state.attributes.get('name_to_entity', {}) }}"
+                  problem_sensors: >
+                    {% set problems = [] %}
+                    {% for entity_id in unavailable_sensors %}
+                      {% for name, eid in name_mapping.items() if eid == entity_id %}
+                        {% set problems = problems + [name ~ ' (unavailable)'] %}
+                      {% endfor %}
+                    {% endfor %}
+                    {% for entity_id in unknown_sensors %}
+                      {% for name, eid in name_mapping.items() if eid == entity_id %}
+                        {% set problems = problems + [name ~ ' (unknown)'] %}
+                      {% endfor %}
+                    {% endfor %}
+                    {{ problems }}
               - action: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Issue
                   message: >
+                    {% if problem_sensors | length > 0 %}
+                    Sensor(s) offline: {{ problem_sensors | join(', ') }}. Leak monitoring may be impaired.
+                    {% else %}
                     Upstream sensors degraded: {{ trigger_entity }}. Leak monitoring may be impaired.
+                    {% endif %}
           - conditions: "{{ upstream_up }}"
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
                 state: 'on'
+              - variables:
+                  name_mapping: "{{ trigger.to_state.attributes.get('name_to_entity', {}) }}"
+                  all_sensor_names: "{{ name_mapping.keys() | list }}"
               - action: "{{ notify_service }}"
                 data:
                   title: Water Monitor Upstream Restored
                   message: >
+                    {% if all_sensor_names | length > 0 %}
+                    All sensors restored: {{ all_sensor_names | join(', ') }}. Leak monitoring is fully operational.
+                    {% else %}
                     Upstream sensors restored: {{ trigger_entity }}.
+                    {% endif %}
           - conditions: "{{ high_session }}"
             sequence:
               - condition: state
                 entity_id: input_boolean.water_monitor_notifications_enabled
+                state: 'on'
+              - condition: state
+                entity_id: input_boolean.water_monitor_high_usage_notifications
                 state: 'on'
               - variables:
                   session_entity: sensor.water_monitor_last_session_volume

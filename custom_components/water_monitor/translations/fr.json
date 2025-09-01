@@ -1,6 +1,17 @@
 {
   "title": "Moniteur d'Eau",
-  "config": {
+  "con      "intelligent": {
+        "title": "Détection Intelligente de Fuites",
+        "description": "Paramètres optionnels liés à l'occupation et configuration du mode d'apprentissage.",
+        "data": {
+          "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
+          "occupancy_state_away": "États d'absence (séparés par virgules, optionnel)",
+          "occupancy_state_vacation": "États de vacances (séparés par virgules, optionnel)",
+          "intelligent_learning_enable": "Activer le mode d'apprentissage",
+          "intel_suppress_during_learning": "Supprimer la détection pendant la période d'apprentissage",
+          "intel_minimum_learning_days": "Jours d'apprentissage minimum avant la détection"
+        }
+      },
     "step": {
       "user": {
         "title": "Configurer le Moniteur d'Eau",

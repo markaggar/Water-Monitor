@@ -62,6 +62,8 @@ from .const import (
     CONF_TANK_LEAK_MAX_HOT_WATER_PCT,
     # Intelligent leak detection
     CONF_INTEL_DETECT_ENABLE,
+    CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING,
+    CONF_INTEL_MINIMUM_LEARNING_DAYS,
     # Shutoff valve and auto-shutoff flags
     CONF_WATER_SHUTOFF_ENTITY,
     CONF_LOW_FLOW_AUTO_SHUTOFF,
@@ -371,6 +373,40 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             t = (target_p - 95.0) / 4.0
             return p95 + t * max(0.0, p99 - p95)
 
+    def _is_learning_period(self) -> tuple[bool, str]:
+        """
+        Check if detector is still in learning period and should not trigger.
+        Returns (is_learning, reason).
+        """
+        ex = {**self._entry.data, **self._entry.options}
+        
+        # Check if learning period protection is enabled
+        if not ex.get(CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING, True):
+            return False, "Learning period protection disabled"
+            
+        min_learning_days = int(ex.get(CONF_INTEL_MINIMUM_LEARNING_DAYS, 14))
+        
+        # Check if we have enough learning data
+        try:
+            eng = self._get_engine()
+            if eng:
+                stats = eng.get_context_stats_for_now()
+                if stats:
+                    count = int(stats.get("count", 0) or 0)
+                    # If count < 10, we don't have baseline yet
+                    if count < 10:
+                        return True, f"Learning period: insufficient data ({count} samples, need 10+)"
+                    
+                    # Check if enough days have passed since first data
+                    # Use a heuristic: 2 samples per day minimum
+                    if count < min_learning_days * 2:
+                        return True, f"Learning period: {count} samples < {min_learning_days * 2} estimated minimum"
+        except Exception:
+            # If we can't check, err on the side of caution during learning
+            return True, "Learning period: unable to verify readiness"
+        
+        return False, "Learning period complete"
+
     @callback
     def _on_tracker_update(self, state: dict) -> None:
         try:
@@ -458,6 +494,13 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 reasons.append("low_flow_persistent")
 
             is_on = risk >= 1.0
+            
+            # Prevent triggering during learning period
+            learning_period, learning_reason = self._is_learning_period()
+            if learning_period and is_on:
+                is_on = False
+                # Update trigger reason to reflect learning period suppression
+                trigger_reason = f"Learning period active: {learning_reason}"
             prev = self._attr_is_on
             # Suppress clearing while valve is off
             if prev and not is_on and valve_off:
@@ -510,6 +553,10 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 "auto_shutoff_valve_entity": valve_entity,
                 "valve_off": valve_off,
                 "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
+                
+                # Learning period status
+                "learning_period_active": learning_period,
+                "learning_status": learning_reason,
             }
             # Auto-shutoff action when transitioning OFF->ON
             if not prev and self._attr_is_on and effective and valve_entity:

@@ -1,17 +1,6 @@
 {
   "title": "Moniteur d'Eau",
-  "con      "intelligent": {
-        "title": "Détection Intelligente de Fuites",
-        "description": "Paramètres optionnels liés à l'occupation et configuration du mode d'apprentissage.",
-        "data": {
-          "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
-          "occupancy_state_away": "États d'absence (séparés par virgules, optionnel)",
-          "occupancy_state_vacation": "États de vacances (séparés par virgules, optionnel)",
-          "intelligent_learning_enable": "Activer le mode d'apprentissage",
-          "intel_suppress_during_learning": "Supprimer la détection pendant la période d'apprentissage",
-          "intel_minimum_learning_days": "Jours d'apprentissage minimum avant la détection"
-        }
-      },
+  "config": {
     "step": {
       "user": {
         "title": "Configurer le Moniteur d'Eau",
@@ -50,12 +39,14 @@
       },
       "intelligent": {
         "title": "Détection Intelligente de Fuites",
-        "description": "Paramètres optionnels conscients de l'occupation et mode d'apprentissage.",
+        "description": "Paramètres optionnels liés à l'occupation et configuration du mode d'apprentissage.",
         "data": {
           "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
           "occupancy_state_away": "États d'absence (séparés par des virgules, optionnel)",
           "occupancy_state_vacation": "États de vacances (séparés par des virgules, optionnel)",
-          "intelligent_learning_enable": "Activer le mode d'apprentissage"
+          "intelligent_learning_enable": "Activer le mode d'apprentissage",
+          "intel_suppress_during_learning": "Supprimer la détection pendant la période d'apprentissage",
+          "intel_minimum_learning_days": "Jours d'apprentissage minimum avant la détection"
         }
       },
       "tank_leak": {
@@ -178,12 +169,15 @@
       },
       "intelligent": {
         "title": "Détection Intelligente de Fuites",
-        "description": "Paramètres optionnels conscients de l'occupation et mode d'apprentissage.",
+        "description": "Paramètres optionnels liés à l'occupation, mode d'apprentissage et préférences de notification.",
         "data": {
           "occupancy_mode_entity": "Entité input_select de mode d'occupation (optionnel)",
           "occupancy_state_away": "États d'absence (séparés par des virgules, optionnel)",
           "occupancy_state_vacation": "États de vacances (séparés par des virgules, optionnel)",
-          "intelligent_learning_enable": "Activer le mode d'apprentissage"
+          "intelligent_learning_enable": "Activer le mode d'apprentissage",
+          "intel_suppress_during_learning": "Supprimer les notifications pendant la période d'apprentissage",
+          "intel_minimum_learning_days": "Jours d'apprentissage minimum avant les notifications",
+          "intelligent_auto_shutoff_on_trigger": "Éteindre la vanne d'arrêt quand une fuite est détectée"
         }
       },
       "synthetic": {

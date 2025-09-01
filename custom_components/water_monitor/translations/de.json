@@ -1,17 +1,6 @@
 {
   "title": "Wasser Monitor",
-  "con      "intelligent": {
-        "title": "Intelligente Leckerkennung",
-        "description": "Optionale belegungsabhängige Einstellungen und Lernmodus-Konfiguration.",
-        "data": {
-          "occupancy_mode_entity": "Belegungsmodus input_select (optional)",
-          "occupancy_state_away": "Abwesend-Zustände (kommagetrennt, optional)",
-          "occupancy_state_vacation": "Urlaub-Zustände (kommagetrennt, optional)",
-          "intelligent_learning_enable": "Lernmodus aktivieren",
-          "intel_suppress_during_learning": "Erkennung während Lernphase unterdrücken",
-          "intel_minimum_learning_days": "Minimum Lerntage vor Erkennung"
-        }
-      },
+  "config": {
     "step": {
       "user": {
         "title": "Wasser Monitor einrichten",
@@ -50,12 +39,14 @@
       },
       "intelligent": {
         "title": "Intelligente Leckerkennung",
-        "description": "Optionale belegungsbewusste Einstellungen und Lernmodus.",
+        "description": "Optionale belegungsabhängige Einstellungen und Lernmodus-Konfiguration.",
         "data": {
           "occupancy_mode_entity": "Belegungsmodus input_select (optional)",
           "occupancy_state_away": "Abwesenheitszustände (durch Komma getrennt, optional)",
           "occupancy_state_vacation": "Urlaubszustände (durch Komma getrennt, optional)",
-          "intelligent_learning_enable": "Lernmodus aktivieren"
+          "intelligent_learning_enable": "Lernmodus aktivieren",
+          "intel_suppress_during_learning": "Erkennung während Lernphase unterdrücken",
+          "intel_minimum_learning_days": "Minimum Lerntage vor Erkennung"
         }
       },
       "tank_leak": {
@@ -178,12 +169,15 @@
       },
       "intelligent": {
         "title": "Intelligente Leckerkennung",
-        "description": "Optionale belegungsbewusste Einstellungen und Lernmodus.",
+        "description": "Optionale belegungsabhängige Einstellungen, Lernmodus und Benachrichtigungseinstellungen.",
         "data": {
           "occupancy_mode_entity": "Belegungsmodus input_select (optional)",
           "occupancy_state_away": "Abwesenheitszustände (durch Komma getrennt, optional)",
           "occupancy_state_vacation": "Urlaubszustände (durch Komma getrennt, optional)",
-          "intelligent_learning_enable": "Lernmodus aktivieren"
+          "intelligent_learning_enable": "Lernmodus aktivieren",
+          "intel_suppress_during_learning": "Benachrichtigungen während Lernphase unterdrücken",
+          "intel_minimum_learning_days": "Minimum Lerntage vor Benachrichtigungen",
+          "intelligent_auto_shutoff_on_trigger": "Absperrventil bei Leckerkennung ausschalten"
         }
       },
       "synthetic": {

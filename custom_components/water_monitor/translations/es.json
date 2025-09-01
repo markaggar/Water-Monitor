@@ -1,17 +1,6 @@
 {
   "title": "Monitor de Agua",
-  "co      "intelligent": {
-        "title": "Detección Inteligente de Fugas",
-        "description": "Configuraciones opcionales de ocupación y modo de aprendizaje.",
-        "data": {
-          "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
-          "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
-          "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
-          "intelligent_learning_enable": "Habilitar modo de aprendizaje",
-          "intel_suppress_during_learning": "Suprimir detección durante período de aprendizaje",
-          "intel_minimum_learning_days": "Días mínimos de aprendizaje antes de detección"
-        }
-      },
+  "config": {
     "step": {
       "user": {
         "title": "Configurar Monitor de Agua",
@@ -50,12 +39,14 @@
       },
       "intelligent": {
         "title": "Detección Inteligente de Fugas",
-        "description": "Configuraciones opcionales conscientes de ocupación y modo de aprendizaje.",
+        "description": "Configuraciones opcionales de ocupación y modo de aprendizaje.",
         "data": {
           "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
           "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
           "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
-          "intelligent_learning_enable": "Habilitar modo de aprendizaje"
+          "intelligent_learning_enable": "Habilitar modo de aprendizaje",
+          "intel_suppress_during_learning": "Suprimir detección durante período de aprendizaje",
+          "intel_minimum_learning_days": "Días mínimos de aprendizaje antes de detección"
         }
       },
       "tank_leak": {
@@ -178,12 +169,15 @@
       },
       "intelligent": {
         "title": "Detección Inteligente de Fugas",
-        "description": "Configuraciones opcionales conscientes de ocupación y modo de aprendizaje.",
+        "description": "Configuraciones opcionales de ocupación, modo de aprendizaje y preferencias de notificación.",
         "data": {
           "occupancy_mode_entity": "Entidad input_select de modo de ocupación (opcional)",
           "occupancy_state_away": "Estados de ausencia (separados por comas, opcional)",
           "occupancy_state_vacation": "Estados de vacaciones (separados por comas, opcional)",
-          "intelligent_learning_enable": "Habilitar modo de aprendizaje"
+          "intelligent_learning_enable": "Habilitar modo de aprendizaje",
+          "intel_suppress_during_learning": "Suprimir notificaciones durante período de aprendizaje",
+          "intel_minimum_learning_days": "Días mínimos de aprendizaje antes de notificaciones",
+          "intelligent_auto_shutoff_on_trigger": "Apagar válvula de corte cuando se detecte fuga"
         }
       },
       "synthetic": {

@@ -1,0 +1,234 @@
+{
+  "title": "Water Monitor",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Water Monitor",
+        "description": "Configure your sensors and session tracking rules.",
+        "data": {
+          "sensor_prefix": "Sensor name prefix",
+          "flow_sensor": "Flow sensor",
+          "volume_sensor": "Volume sensor (optional)",
+          "hot_water_sensor": "Hot water binary sensor (optional)",
+          "water_shutoff_entity": "Water shutoff valve (optional)",
+          "clear_water_shutoff_entity": "Clear water shutoff valve",
+          "clear_volume_sensor": "Clear volume sensor",
+          "clear_hot_water_sensor": "Clear hot water sensor",
+          "integration_method": "Integration method (when no volume sensor specified)",
+          "min_session_volume": "Minimum session volume",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "session_gap_tolerance": "Gap tolerance (seconds)",
+          "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
+          "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
+          "low_flow_enable": "Enable low-flow leak detection",
+          "tank_refill_leak_enable": "Enable tank refill leak detection"
+        },
+        "data_description": {
+          "integration_method": "Only used when computing volume from the flow sensor. Trapezoidal (recommended) gives better accuracy on changing flow. Left matches external counters that tick once per update."
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow",
+        "description": "Optional test-only synthetic flow controls.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection",
+        "description": "Optional occupancy-aware settings and learning mode configuration.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode",
+          "intel_suppress_during_learning": "Suppress detection during learning period",
+          "intel_minimum_learning_days": "Minimum learning days before detection"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank refill leak detection",
+        "description": "Trigger when several similar small refills occur within a short time — typical of a leaky toilet flapper.",
+        "data": {
+          "tank_refill_min_volume": "Minimum refill volume",
+          "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
+          "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
+          "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_max_hot_water_pct": "Maximum hot water percentage (%)",
+          "tank_refill_window_s": "Window to count repeats (seconds)",
+          "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
+          "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)",
+          "tank_refill_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignore refills smaller than this.",
+          "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
+          "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
+          "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_max_hot_water_pct": "Sessions with hot water percentage above this will be ignored.",
+          "tank_refill_window_s": "Time window to collect refills for comparison.",
+          "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
+          "tank_refill_min_duration_s": "Ignore refills shorter than this (0 disables the guard).",
+          "tank_refill_max_duration_s": "Ignore refills longer than this (0 disables the guard)."
+        }
+      },
+      "low_flow": {
+        "title": "Low-flow leak detection",
+        "description": "Configure when a sustained low flow should be considered a leak.",
+        "data": {
+          "low_flow_max_flow": "Max low-flow rate",
+          "low_flow_seed_low_flow_duration_s": "Seed low-flow duration (seconds)",
+          "low_flow_min_duration_s": "Minimum duration to trigger (seconds)",
+          "low_flow_clear_idle_s": "Clear after idle (seconds at zero flow)",
+          "low_flow_counting_mode": "Counting mode",
+          "low_flow_smoothing_window_s": "Smoothing window (seconds)",
+          "low_flow_cooldown_s": "Cooldown after clear (seconds)",
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
+          "low_flow_baseline_margin_pct": "Baseline margin (%)",
+          "low_flow_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Water Monitor options",
+        "description": "Update your sensors, session rules, and leak detection settings.",
+        "data": {
+          "sensor_prefix": "Sensor name prefix",
+          "flow_sensor": "Flow sensor",
+          "volume_sensor": "Volume sensor (optional)",
+          "hot_water_sensor": "Hot water binary sensor (optional)",
+          "water_shutoff_entity": "Water shutoff valve (optional)",
+          "clear_water_shutoff_entity": "Clear water shutoff valve",
+          "clear_volume_sensor": "Clear volume sensor",
+          "clear_hot_water_sensor": "Clear hot water sensor",
+          "integration_method": "Integration method (when no volume sensor specified)",
+          "min_session_volume": "Minimum session volume",
+          "min_session_duration": "Minimum session duration (seconds)",
+          "session_gap_tolerance": "Gap tolerance (seconds)",
+          "sessions_use_baseline_as_zero": "Treat baseline threshold as zero for session end",
+          "sessions_idle_to_close_s": "Baseline idle to close session (seconds)",
+          "synthetic_enable": "Enable Synthetic Flow (testing)",
+          "intelligent_leak_detection_enable": "Enable Intelligent Leak Detection (experimental)",
+          "low_flow_enable": "Enable low-flow leak detection",
+          "tank_refill_leak_enable": "Enable tank refill leak detection"
+        },
+        "data_description": {
+          "integration_method": "Only used when computing volume from the flow sensor. Trapezoidal (recommended) gives better accuracy on changing flow. Left matches external counters that tick once per update."
+        }
+      },
+      "synthetic": {
+        "title": "Synthetic Flow options",
+        "description": "Adjust synthetic flow behavior.",
+        "data": {
+          "include_synthetic_in_detectors": "Include synthetic flow in detectors",
+          "include_synthetic_in_daily": "Include synthetic in daily analysis"
+        }
+      },
+      "intelligent": {
+        "title": "Intelligent Leak Detection options",
+        "description": "Adjust occupancy-aware settings, learning mode, and notification preferences.",
+        "data": {
+          "occupancy_mode_entity": "Occupancy mode input_select (optional)",
+          "occupancy_state_away": "Away states (comma-separated, optional)",
+          "occupancy_state_vacation": "Vacation states (comma-separated, optional)",
+          "intelligent_learning_enable": "Enable learning mode",
+          "intel_suppress_during_learning": "Suppress notifications during learning period",
+          "intel_minimum_learning_days": "Minimum learning days before notifications",
+          "intel_suppress_high_usage_notifications": "Suppress high usage notifications",
+          "intelligent_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
+        }
+      },
+      "tank_leak": {
+        "title": "Tank refill leak detection options",
+        "description": "Adjust the thresholds for detecting repeated similar refills.",
+        "data": {
+          "tank_refill_min_volume": "Minimum refill volume",
+          "tank_refill_max_volume": "Maximum refill volume (0 = disabled)",
+          "tank_refill_volume_tolerance_pct": "Similarity tolerance (%)",
+          "tank_refill_repeat_count": "Repeat count to trigger",
+          "tank_refill_max_hot_water_pct": "Maximum hot water percentage (%)",
+          "tank_refill_window_s": "Window to count repeats (seconds)",
+          "tank_refill_clear_idle_s": "Auto-clear after idle (seconds)",
+          "tank_refill_cooldown_s": "Cooldown after clear (seconds)",
+          "tank_refill_min_duration_s": "Minimum refill duration (seconds, 0 = disabled)",
+          "tank_refill_max_duration_s": "Maximum refill duration (seconds, 0 = disabled)",
+          "tank_refill_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
+        },
+        "data_description": {
+          "tank_refill_min_volume": "Ignore refills smaller than this.",
+          "tank_refill_max_volume": "Ignore refills larger than this (0 disables the cap).",
+          "tank_refill_volume_tolerance_pct": "How similar volumes must be to be counted together.",
+          "tank_refill_repeat_count": "Number of similar refills within the window required to trigger.",
+          "tank_refill_max_hot_water_pct": "Sessions with hot water percentage above this will be ignored.",
+          "tank_refill_window_s": "Time window to collect refills for comparison.",
+          "tank_refill_clear_idle_s": "Time without matching refills before the alert clears.",
+          "tank_refill_cooldown_s": "Suppress re-triggering for this long after clearing.",
+          "tank_refill_min_duration_s": "Ignore refills shorter than this (0 disables the guard).",
+          "tank_refill_max_duration_s": "Ignore refills longer than this (0 disables the guard)."
+        }
+      },
+      "low_flow": {
+        "title": "Low-flow leak detection options",
+        "description": "Adjust how the low-flow leak sensor behaves.",
+        "data": {
+          "low_flow_max_flow": "Max low-flow rate",
+          "low_flow_seed_low_flow_duration_s": "Seed low-flow duration (seconds)",
+          "low_flow_min_duration_s": "Minimum duration to trigger (seconds)",
+          "low_flow_clear_idle_s": "Clear after idle (seconds at zero flow)",
+          "low_flow_counting_mode": "Counting mode",
+          "low_flow_smoothing_window_s": "Smoothing window (seconds)",
+          "low_flow_cooldown_s": "Cooldown after clear (seconds)",
+          "low_flow_clear_on_sustained_high_flow_s": "Clear after sustained high flow (seconds, optional)",
+          "low_flow_baseline_margin_pct": "Baseline margin (%)",
+          "low_flow_auto_shutoff_on_trigger": "Turn off shutoff valve when leak is detected"
+        },
+        "data_description": {
+          "low_flow_counting_mode": "Choose how time is accumulated during low-flow:\n- Any non-zero flow (wall clock): counts all time while flow > 0\n- Only time within low-flow range: counts only while 0 < flow \u2264 max low-flow\n- Baseline latch: once seeded, latches a baseline and counts while flow stays near baseline; margin controls the allowed band"
+        }
+      }
+    }
+  },
+  "selector": {
+    "integration_method": {
+      "options": {
+        "trapezoidal": "Trapezoidal (recommended)",
+        "left": "Left Riemann sum"
+      }
+    },
+    "low_flow_counting_mode": {
+      "options": {
+        "nonzero_wallclock": "Any non-zero flow (wall clock)",
+        "in_range_only": "Only time within low-flow range",
+        "baseline_latch": "Baseline latch mode"
+      }
+    }
+  },
+  "entity": {
+    "number": {
+      "expected_baseline": {
+        "name": "Expected low-flow baseline"
+      },
+      "leak_sensitivity": {
+        "name": "Leak alert sensitivity"
+      },
+      "synthetic_flow_gpm": {
+        "name": "Synthetic flow (gpm)"
+      }
+    }
+  }
+}

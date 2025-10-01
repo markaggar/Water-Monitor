@@ -200,6 +200,17 @@ The intelligent leak detection analysis engine automatically runs daily at **3:1
   - State: on/off (device_class: connectivity)
   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
 
+## Want a sensor that tracks/logs any of the attributes?
+It's possible you might want to track the state of an individual attribute to get history, show on a dashboard etc.
+
+Fortunately, it's easy to do this yourself with a template helper you create under Settings/Devices & Services/Helpers.  Add the following in the State section of the Helper configuration page.
+
+{{state_attr('sensor.sensorname','attribute_name')}}
+
+e.g.
+
+{{state_attr('sensor.water_monitor_current_session_volume','current_session_duration')}}
+  
 ## How it works
 
 ### Session detection

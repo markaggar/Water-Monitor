@@ -43,6 +43,38 @@ from .engine import WaterMonitorEngine
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_flow_unit(unit: str | None) -> str | None:
+    """Normalize equivalent flow unit representations to canonical forms.
+
+    This prevents unit oscillation between equivalent representations like
+    'gpm' vs 'gal/min' or 'lpm' vs 'L/min' which can cause Home Assistant
+    statistics issues when the unit appears to change.
+    """
+    if not unit:
+        return unit
+    u = unit.strip().lower()
+    # Gallons per minute: normalize gpm -> gal/min
+    if u in ("gpm", "gal/min", "galpermin", "gallons/min", "gallons per minute"):
+        return "gal/min"
+    # Liters per minute: normalize lpm -> L/min
+    if u in ("lpm", "l/min", "lpermin", "liters/min", "litres/min", "liters per minute", "litres per minute"):
+        return "L/min"
+    # Gallons per hour
+    if u in ("gph", "gal/h", "gal/hr", "gallons/hour", "gallons per hour"):
+        return "gal/h"
+    # Liters per hour
+    if u in ("lph", "l/h", "l/hr", "liters/hour", "litres/hour", "liters per hour", "litres per hour"):
+        return "L/h"
+    # Gallons per second
+    if u in ("gps", "gal/s", "gallons/s", "gallons per second"):
+        return "gal/s"
+    # Liters per second
+    if u in ("lps", "l/s", "liters/s", "litres/s", "liters per second", "litres per second"):
+        return "L/s"
+    # Return original if no normalization needed (preserve case for unknown units)
+    return unit
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -404,6 +436,8 @@ class WaterSessionSensor(SensorEntity):
             # Determine unit from the volume sensor (if used), else infer from flow
             volume_unit = volume_state.attributes.get("unit_of_measurement") if volume_state else None
             flow_unit = (flow_state.attributes.get("unit_of_measurement") or "") if flow_state else ""
+            # Normalize flow unit to prevent oscillation between equivalent representations
+            flow_unit = _normalize_flow_unit(flow_unit) or ""
             if not volume_unit:
                 fu = str(flow_unit).lower().replace(" ", "")
                 # Check for gallons/minute first to avoid 'gal/min' matching 'l/min'
@@ -870,11 +904,16 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
                             flow_unit = st.attributes.get("unit_of_measurement")
                             break
 
+        # Normalize flow unit to prevent oscillation between equivalent representations
+        # (e.g., 'gpm' vs 'gal/min')
+        flow_unit = _normalize_flow_unit(flow_unit)
+
         # Compute average using last session volume/duration and target flow unit when possible
         volume = float(state_data.get("last_session_volume", 0.0) or 0.0)
         duration_s = int(state_data.get("last_session_duration", 0) or 0)
 
         def compute_avg(volume_val: float, dur_s: int, f_unit: Optional[str], v_unit: Optional[str]) -> tuple[float, Optional[str]]:
+            # f_unit is already normalized by caller
             if dur_s <= 0:
                 # No duration; default to 0 with unit preference
                 if f_unit:

@@ -78,24 +78,25 @@ input_datetime:
 ###############################
 # Template Sensors (optional) #
 ###############################
-sensor:
-  - platform: template
-    sensors:
-      water_monitor_any_leak_active:
-        friendly_name: Water Monitor Any Leak Active
-        unique_id: water_monitor_any_leak_active
-        value_template: >
+template:
+  - sensor:
+      - unique_id: water_monitor_any_leak_active
+        default_entity_id: sensor.water_monitor_any_leak_active
+        name: Water Monitor Any Leak Active
+        state: >
           {% set leaks = states.binary_sensor | selectattr('state','eq','on')
               | selectattr('attributes.device_class','defined')
               | selectattr('attributes.device_class','eq','problem')
-              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+              | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak')
+              | list %}
           {{ 'on' if leaks|length > 0 else 'off' }}
-        attribute_templates:
+        attributes:
           active_leaks: >
             {% set leaks = states.binary_sensor | selectattr('state','eq','on')
                 | selectattr('attributes.device_class','defined')
                 | selectattr('attributes.device_class','eq','problem')
-                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak') | list %}
+                | selectattr('entity_id','search','_low_flow_leak|_tank_refill_leak|_intelligent_leak')
+                | list %}
             {{ leaks | map(attribute='entity_id') | list }}
 
 

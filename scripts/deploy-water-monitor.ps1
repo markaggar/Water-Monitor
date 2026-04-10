@@ -1,6 +1,6 @@
 param(
-    [string]$DestPath = "\\10.0.0.55\config\custom_components\water_monitor",
-    [string]$PackagesDest = "\\10.0.0.55\config\packages",
+    [string]$DestPath = "\\10.0.0.62\config\custom_components\water_monitor",
+    [string]$PackagesDest = "\\10.0.0.62\config\packages",
     [string]$VerifyEntity,
     [switch]$DumpErrorLog,
     [switch]$DumpErrorLogOnFail,

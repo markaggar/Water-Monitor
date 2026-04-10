@@ -174,7 +174,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         # Quick auth check
         $cfgUri = "$baseUrl/api/config"
         Write-Host "Checking HA API: $cfgUri" -ForegroundColor DarkGray
-        $cfgResp = Invoke-WebRequest -Method Get -Uri $cfgUri -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+        $cfgResp = Invoke-WebRequest -Method Get -Uri $cfgUri -Headers $headers -TimeoutSec 15 -ErrorAction Stop -UseBasicParsing
         Write-Host "HA API reachable (HTTP $($cfgResp.StatusCode))." -ForegroundColor DarkGray
     } catch {
         Write-Warning "HA API check failed: $($_.Exception.Message)"
@@ -240,7 +240,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     $uri = "$baseUrl/api/services/homeassistant/restart"
     try {
         Write-Host "Requesting HA Core restart via REST: $uri" -ForegroundColor Cyan
-        $resp = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
         Write-Host "HA restart requested (HTTP $($resp.StatusCode))." -ForegroundColor Green
         $restartAttempted = $true
         if ($resp.StatusCode -in 200,202) { $restartAccepted = $true }
@@ -257,7 +257,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
             # Retry once after 2s for transient issues
             Start-Sleep -Seconds 2
             try {
-                $resp2 = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop
+                $resp2 = Invoke-WebRequest -Method Post -Uri $uri -Headers $headers -Body '{}' -TimeoutSec 30 -ErrorAction Stop -UseBasicParsing
                 Write-Host "HA restart requested on retry (HTTP $($resp2.StatusCode))." -ForegroundColor Green
                 $restartAttempted = $true
                 if ($resp2.StatusCode -in 200,202) { $restartAccepted = $true }
@@ -278,7 +278,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
     Write-Host "Waiting up to $maxWait s for HA to come back online..." -ForegroundColor DarkGray
     while ($elapsed -lt $maxWait) {
         try {
-            $ping = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/config" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+            $ping = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/config" -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
             if ($ping.StatusCode -eq 200) {
                 Write-Host "HA back online after ${elapsed}s (HTTP 200)." -ForegroundColor Green
                 $back = $true
@@ -315,7 +315,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         $elapsed = 0
         while ($elapsed -lt $verifyMaxWait) {
             try {
-                $stateResp = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/states/$VerifyEntity" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+                $stateResp = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/states/$VerifyEntity" -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
                 if ($stateResp.StatusCode -eq 200) {
                     $obj = $stateResp.Content | ConvertFrom-Json
                     $st = [string]$obj.state
@@ -341,7 +341,7 @@ if (-not [string]::IsNullOrWhiteSpace($baseUrl) -and -not [string]::IsNullOrWhit
         # Attribute verification (basic sanity): ensure integration_method and sampling cadence attributes are present
         if ($ok) {
             try {
-                $stateResp2 = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/states/$VerifyEntity" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+                $stateResp2 = Invoke-WebRequest -Method Get -Uri "$baseUrl/api/states/$VerifyEntity" -Headers $headers -TimeoutSec 10 -ErrorAction Stop -UseBasicParsing
                 if ($stateResp2.StatusCode -eq 200) {
                     $obj2 = $stateResp2.Content | ConvertFrom-Json
                     $attrs = $obj2.attributes

@@ -516,6 +516,12 @@ class WaterMonitorEngine:
         })
         return stats
 
+    def get_recent_sessions(self, limit: int = 300) -> List[Dict[str, Any]]:
+        """Return recent recorded sessions as plain dicts for read-only consumers."""
+        lim = max(1, int(limit or 300))
+        recent = self._state.sessions[-lim:]
+        return [rec.__dict__.copy() for rec in recent]
+
     # -------------------------
     # Simulation tooling (to accelerate baseline creation)
     # -------------------------

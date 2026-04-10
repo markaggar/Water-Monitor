@@ -621,7 +621,8 @@ class WaterSessionSensor(SensorEntity):
 
             # Apply adaptive cadence based on state and write state
             self._apply_cadence(state_data)
-            self.async_write_ha_state()
+            prev_value = self._attr_native_value
+            self.async_write_ha_state() if prev_value != self._attr_native_value else None
             self._prev_session_active = current_active
 
         except (ValueError, TypeError) as e:
@@ -749,11 +750,12 @@ class CurrentSessionVolumeSensor(SensorEntity):
         }
 
         # Update state (rounded to 2 decimals)
+        prev_value = self._attr_native_value
         self._attr_native_value = round(float(current_volume), 2)
         self._attr_available = True
 
-        # Only write state if hass is available
-        if self.hass is not None:
+        # Only write state if hass is available and value changed
+        if self.hass is not None and prev_value != self._attr_native_value:
             self.async_write_ha_state()
 
 
@@ -829,6 +831,7 @@ class LastSessionDurationSensor(_BaseDependentSensor):
         # Only mark available True if upstream is available
         self._attr_available = self._upstream_available()
         val = int(state_data.get("last_session_duration", 0) or 0)
+        prev_value = self._attr_native_value
         self._attr_native_value = val
         self._attr_extra_state_attributes = {
             "debug_state": state_data.get("debug_state"),
@@ -836,7 +839,7 @@ class LastSessionDurationSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None:
+        if self.hass is not None and prev_value != self._attr_native_value:
             self.async_write_ha_state()
 
 
@@ -912,6 +915,7 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
             return (volume_val / dur_s) * 60.0, None
 
         value, unit = compute_avg(volume, duration_s, flow_unit, vol_unit)
+        prev_value = self._attr_native_value
         self._attr_native_value = round(float(value or 0.0), 2)
         self._attr_native_unit_of_measurement = unit
         self._attr_extra_state_attributes = {
@@ -922,7 +926,7 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None:
+        if self.hass is not None and prev_value != self._attr_native_value:
             self.async_write_ha_state()
 
 
@@ -941,6 +945,7 @@ class LastSessionHotWaterPctSensor(_BaseDependentSensor):
         self._attr_available = self._upstream_available()
         val = float(state_data.get("last_session_hot_water_pct", 0.0) or 0.0)
         # Tracker rounds to 0.1; keep one decimal
+        prev_value = self._attr_native_value
         self._attr_native_value = round(val, 1)
         self._attr_extra_state_attributes = {
             "debug_state": state_data.get("debug_state"),
@@ -948,5 +953,5 @@ class LastSessionHotWaterPctSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None:
+        if self.hass is not None and prev_value != self._attr_native_value:
             self.async_write_ha_state()

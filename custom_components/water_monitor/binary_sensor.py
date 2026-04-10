@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from math import sqrt
 from typing import Optional, Deque, Tuple
 
 from homeassistant.components.binary_sensor import (
@@ -250,6 +251,7 @@ class EngineStatusBinarySensor(BinarySensorEntity):
     def _on_engine_event(self, payload: dict) -> None:
         """Process engine events to reflect status and anomaly flag."""
         try:
+            prev_on = self._attr_is_on
             typ = payload.get("type")
             if typ == "ingest":
                 rec = payload.get("record", {})
@@ -272,15 +274,26 @@ class EngineStatusBinarySensor(BinarySensorEntity):
                     "baseline_std": summary.get("baseline_std"),
                     "threshold_3sigma": summary.get("threshold_3sigma"),
                 })
-            # Write updated state
-            self.async_write_ha_state()
+            # Only write if state changed
+            if prev_on != self._attr_is_on:
+                self.async_write_ha_state()
         except Exception:
             # Defensive: don’t throw from callback
             pass
 
 
 class IntelligentLeakBinarySensor(LeakDetectorBase):
-    """Real-time leak detection based on current-session and simple hourly baselines."""
+    """Experimental intelligent leak detector using learned behavior profiles.
+
+    The detector learns session-shape profiles over time (volume, duration,
+    average flow, hot water percent) and evaluates the current live session
+    against those profiles.
+
+    Stages:
+    - normal
+    - potential (early warning)
+    - confirmed (high confidence leak)
+    """
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
@@ -291,14 +304,30 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         self._attr_available = True
         self._attr_extra_state_attributes = {}
         self._unsub = None
-        # Last evaluation timestamp; set during tracker callbacks
-        self._last_eval_ts = None
         self._sensitivity_entity_id = None
-        # Track wall-clock flow activity in case sessions are suppressed by baseline-as-zero
+
+        # Runtime session tracking
+        self._last_eval_ts: Optional[datetime] = None
         self._flow_active_start = None
         self._last_flow_now = 0.0
-        # Track synthetic flow at trigger time for notifications
+
+        # Trigger metadata
         self._synthetic_flow_at_trigger = 0.0
+
+        # Stage machine state
+        self._leak_stage = "normal"
+        self._potential_candidate_since: Optional[datetime] = None
+        self._confirmed_candidate_since: Optional[datetime] = None
+
+        # Learned profile model (experimental, in-memory)
+        # profile id -> centroid/count
+        self._profiles: dict[str, dict] = {}
+        # profile id -> total learned count
+        self._profile_total_count: dict[str, int] = {}
+        # profile id -> context occurrence counts
+        self._profile_context_count: dict[str, dict[str, int]] = {}
+        self._learned_sessions = 0
+        self._last_finalized_sig: Optional[tuple[float, int, float]] = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -316,6 +345,7 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         sig = tracker_signal(self._entry.entry_id)
         self._unsub = async_dispatcher_connect(self.hass, sig, self._on_tracker_update)
         self._attr_available = True
+
         # Resolve the Leak alert sensitivity number entity_id by unique_id
         try:
             reg = er.async_get(self.hass)
@@ -326,6 +356,9 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                     break
         except Exception:
             self._sensitivity_entity_id = None
+
+        # Bootstrap profiles from persisted engine history so learning survives restart.
+        self._bootstrap_profiles_from_engine()
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -341,10 +374,6 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         except Exception:
             return None
 
-    def _hour_and_daytype(self, now: datetime) -> tuple[int, str]:
-        local = now.astimezone()
-        return local.hour, ("weekend" if local.weekday() >= 5 else "weekday")
-
     def _get_sensitivity(self) -> float:
         """Read user sensitivity (0-100), default 50 when unavailable."""
         try:
@@ -357,21 +386,143 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             pass
         return 50.0
 
-    def _percentile_from_sensitivity(self, s: float) -> float:
-        """Map 0..100 to 99..90 (linear), with 50 -> ~95."""
-        s = max(0.0, min(100.0, s))
-        return 99.0 - 0.09 * s
+    def _current_occ_class(self, now: datetime, eng: Optional[WaterMonitorEngine]) -> str:
+        """Resolve occupancy class and apply a simple night override."""
+        occ_class = "home"
+        try:
+            if eng:
+                stats = eng.get_context_stats_for_now()
+                occ_class = str(stats.get("occ_class") or "home")
+        except Exception:
+            occ_class = "home"
 
-    def _interpolate_threshold(self, p90: float, p95: float, p99: float, target_p: float) -> float:
-        target_p = max(90.0, min(99.0, target_p))
-        if target_p <= 95.0:
-            # Map 90..95 onto p90..p95
-            t = (target_p - 90.0) / 5.0
-            return p90 + t * max(0.0, p95 - p90)
-        else:
-            # Map 95..99 onto p95..p99
-            t = (target_p - 95.0) / 4.0
-            return p95 + t * max(0.0, p99 - p95)
+        # Keep explicit away/vacation, but classify 00:00-05:59 as night otherwise.
+        if occ_class not in ("away", "vacation"):
+            local_hour = now.astimezone().hour
+            if 0 <= local_hour <= 5:
+                occ_class = "night"
+            else:
+                occ_class = "home"
+        return occ_class
+
+    def _context_key(self, occ_class: str) -> str:
+        return occ_class if occ_class in ("home", "night", "away", "vacation") else "home"
+
+    def _feature_from_values(
+        self,
+        volume_gal: float,
+        duration_s: int,
+        avg_flow_gpm: float,
+        hot_pct: float,
+    ) -> dict[str, float]:
+        return {
+            "volume": max(0.0, float(volume_gal)),
+            "duration": max(0.0, float(duration_s)),
+            "avg_flow": max(0.0, float(avg_flow_gpm)),
+            "hot_pct": max(0.0, min(100.0, float(hot_pct))),
+        }
+
+    def _profile_distance(self, feature: dict[str, float], profile: dict) -> float:
+        """Weighted normalized distance to a profile centroid."""
+        p_dur = max(60.0, float(profile.get("duration", 60.0)))
+        p_flow = max(0.2, float(profile.get("avg_flow", 0.2)))
+        p_vol = max(0.5, float(profile.get("volume", 0.5)))
+
+        d_dur = (float(feature["duration"]) - p_dur) / p_dur
+        d_flow = (float(feature["avg_flow"]) - p_flow) / p_flow
+        d_vol = (float(feature["volume"]) - p_vol) / p_vol
+        d_hot = (float(feature["hot_pct"]) - float(profile.get("hot_pct", 0.0))) / 100.0
+
+        return sqrt((1.2 * d_dur * d_dur) + (1.0 * d_flow * d_flow) + (1.0 * d_vol * d_vol) + (0.5 * d_hot * d_hot))
+
+    def _best_profile(self, feature: dict[str, float]) -> tuple[Optional[str], Optional[dict], float]:
+        best_id = None
+        best_profile = None
+        best_dist = 999.0
+        for pid, profile in self._profiles.items():
+            dist = self._profile_distance(feature, profile)
+            if dist < best_dist:
+                best_id = pid
+                best_profile = profile
+                best_dist = dist
+        return best_id, best_profile, best_dist
+
+    def _next_profile_id(self) -> str:
+        idx = len(self._profiles) + 1
+        return f"t{idx:02d}"
+
+    def _update_profile(self, profile_id: str, feature: dict[str, float]) -> None:
+        profile = self._profiles.get(profile_id)
+        if profile is None:
+            profile = {
+                "volume": float(feature["volume"]),
+                "duration": float(feature["duration"]),
+                "avg_flow": float(feature["avg_flow"]),
+                "hot_pct": float(feature["hot_pct"]),
+                "count": 0,
+            }
+            self._profiles[profile_id] = profile
+
+        count = int(profile.get("count", 0)) + 1
+        profile["count"] = count
+
+        alpha = 1.0 / float(count)
+        for key in ("volume", "duration", "avg_flow", "hot_pct"):
+            prev = float(profile.get(key, 0.0))
+            cur = float(feature.get(key, 0.0))
+            profile[key] = prev + (cur - prev) * alpha
+
+    def _record_profile_context(self, profile_id: str, ctx_key: str) -> None:
+        self._profile_total_count[profile_id] = int(self._profile_total_count.get(profile_id, 0)) + 1
+        counts = self._profile_context_count.setdefault(profile_id, {})
+        counts[ctx_key] = int(counts.get(ctx_key, 0)) + 1
+
+    def _learn_session(self, feature: dict[str, float], ctx_key: str) -> tuple[str, float]:
+        """Assign a session to a learned profile and update centroids."""
+        self._learned_sessions += 1
+
+        best_id, _best_profile, best_dist = self._best_profile(feature)
+        merge_threshold = 1.10
+        max_profiles = 12
+
+        if best_id is None:
+            best_id = self._next_profile_id()
+            self._update_profile(best_id, feature)
+            self._record_profile_context(best_id, ctx_key)
+            return best_id, 0.0
+
+        if best_dist > merge_threshold and len(self._profiles) < max_profiles:
+            new_id = self._next_profile_id()
+            self._update_profile(new_id, feature)
+            self._record_profile_context(new_id, ctx_key)
+            return new_id, best_dist
+
+        self._update_profile(best_id, feature)
+        self._record_profile_context(best_id, ctx_key)
+        return best_id, best_dist
+
+    def _bootstrap_profiles_from_engine(self) -> None:
+        """Initialize in-memory profiles from persisted engine session history."""
+        eng = self._get_engine()
+        if not eng:
+            return
+        try:
+            sessions = eng.get_recent_sessions(300)
+        except Exception:
+            return
+        for rec in sessions:
+            try:
+                dur = int(rec.get("duration_s", 0) or 0)
+                vol = float(rec.get("volume", 0.0) or 0.0)
+                avg = float(rec.get("avg_flow", 0.0) or 0.0)
+                hot = float(rec.get("hot_pct", 0.0) or 0.0)
+            except Exception:
+                continue
+            if dur <= 0 or vol <= 0:
+                continue
+            feature = self._feature_from_values(vol, dur, avg, hot)
+            ctx_key = self._context_key(str(rec.get("occ_class") or "home"))
+            self._learn_session(feature, ctx_key)
 
     def _is_learning_period(self) -> tuple[bool, str]:
         """
@@ -385,27 +536,78 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             return False, "Learning period protection disabled"
             
         min_learning_days = int(ex.get(CONF_INTEL_MINIMUM_LEARNING_DAYS, 14))
-        
-        # Check if we have enough learning data
-        try:
-            eng = self._get_engine()
-            if eng:
-                stats = eng.get_context_stats_for_now()
-                if stats:
-                    count = int(stats.get("count", 0) or 0)
-                    # If count < 10, we don't have baseline yet
-                    if count < 10:
-                        return True, f"Learning period: insufficient data ({count} samples, need 10+)"
-                    
-                    # Check if enough days have passed since first data
-                    # Use a heuristic: 2 samples per day minimum
-                    if count < min_learning_days * 2:
-                        return True, f"Learning period: {count} samples < {min_learning_days * 2} estimated minimum"
-        except Exception:
-            # If we can't check, err on the side of caution during learning
-            return True, "Learning period: unable to verify readiness"
-        
+        min_samples = max(10, min_learning_days * 2)
+        if self._learned_sessions < min_samples:
+            return True, f"Learning period: {self._learned_sessions} samples < {min_samples} minimum"
         return False, "Learning period complete"
+
+    def _thresholds_from_sensitivity(self, sensitivity: float) -> tuple[float, float, float, int, int]:
+        """Return (potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s)."""
+        s = max(0.0, min(100.0, sensitivity))
+        potential_th = max(0.65, 1.20 - (0.005 * s))
+        confirmed_th = potential_th + 0.55
+        clear_th = potential_th * 0.55
+        potential_hold_s = max(20, int(80 - (0.5 * s)))
+        confirmed_hold_s = max(45, int(180 - (1.2 * s)))
+        return potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s
+
+    def _is_expected_in_context(self, profile_id: Optional[str], ctx_key: str) -> bool:
+        if not profile_id:
+            return False
+        total = int(self._profile_total_count.get(profile_id, 0))
+        if total < 2:
+            return False
+        ctx = int(self._profile_context_count.get(profile_id, {}).get(ctx_key, 0))
+        return (ctx / float(total)) >= 0.12
+
+    def _learn_from_last_session(self, state: dict, ctx_key: str) -> tuple[Optional[str], Optional[float]]:
+        """Consume finalized session payload (if new) and update profile model."""
+        try:
+            vol = float(state.get("last_session_volume", 0.0) or 0.0)
+            dur = int(state.get("last_session_duration", 0) or 0)
+            avg = float(state.get("last_session_average_flow", 0.0) or 0.0)
+            hot = float(state.get("last_session_hot_water_pct", 0.0) or 0.0)
+            synth = float(state.get("last_session_synthetic_volume", 0.0) or 0.0)
+        except Exception:
+            return None, None
+
+        vol_eff = max(0.0, vol - max(0.0, synth))
+        if dur <= 0 or vol_eff <= 0:
+            return None, None
+
+        # Debounce repeated tracker payloads for the same finalized session.
+        sig = (round(vol_eff, 4), int(dur), round(avg, 4))
+        if sig == self._last_finalized_sig:
+            return None, None
+        self._last_finalized_sig = sig
+
+        # Adjust avg flow to remove synthetic contribution.
+        if dur > 0 and synth > 0:
+            avg = max(0.0, avg - (synth / (dur / 60.0)))
+
+        feature = self._feature_from_values(vol_eff, dur, avg, hot)
+        profile_id, distance = self._learn_session(feature, ctx_key)
+        return profile_id, distance
+
+    def _live_feature(self, state: dict, elapsed_s: int) -> dict[str, float]:
+        try:
+            volume = float(state.get("current_session_volume", 0.0) or 0.0)
+        except Exception:
+            volume = 0.0
+        try:
+            avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
+        except Exception:
+            avg_flow = 0.0
+        try:
+            hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
+        except Exception:
+            hot_pct = 0.0
+
+        # Fallback: infer current volume from avg flow and elapsed if tracker volume is absent.
+        if volume <= 0.0 and elapsed_s > 0 and avg_flow > 0.0:
+            volume = avg_flow * (float(elapsed_s) / 60.0)
+
+        return self._feature_from_values(volume, elapsed_s, avg_flow, hot_pct)
 
     @callback
     def _on_tracker_update(self, state: dict) -> None:
@@ -413,13 +615,15 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             valve_entity, valve_off, auto, effective = self._get_valve_context(CONF_INTEL_AUTO_SHUTOFF)
             now = datetime.now(timezone.utc)
             self._last_eval_ts = now
+
             # Pull live session metrics
             active = bool(state.get("current_session_active", False))
             elapsed = int(state.get("current_session_duration", 0) or 0)
             avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
             hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
             flow_now = float(state.get("flow_sensor_value", 0.0) or 0.0)
-            # Maintain independent wall-clock elapsed while flow > 0
+
+            # Maintain independent wall-clock elapsed while flow > 0.
             if flow_now > 0.0:
                 if self._flow_active_start is None:
                     self._flow_active_start = now
@@ -427,143 +631,178 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 self._flow_active_start = None
             flow_elapsed = int((now - self._flow_active_start).total_seconds()) if self._flow_active_start else 0
 
-            # Choose elapsed for risk: prefer session elapsed, else fall back to wall-clock under flow
+            # Choose elapsed for risk: prefer session elapsed, else fall back to wall-clock under flow.
             eff_elapsed = elapsed if (active and elapsed > 0) else flow_elapsed
-
-            # Fetch context-aware baseline for current hour/day_type and occupancy/person context
             eng = self._get_engine()
-            hour, day_type = self._hour_and_daytype(now)
-            stats = None
-            if eng:
-                # Ask engine for context-aware stats reflecting now
-                stats = eng.get_context_stats_for_now()
-            stats = stats or {
-                "bucket": None,
-                "count": 0,
-                "p50": 0.0,
-                "p90": 0.0,
-                "p95": 0.0,
-                "p99": 0.0,
-                "level": 99,
-            }
-            # Compute chosen percentile from sensitivity
+            occ_class = self._current_occ_class(now, eng)
+            ctx_key = self._context_key(occ_class)
+
+            # Keep learning model updated from newly finalized sessions.
+            learned_profile_id, learned_distance = self._learn_from_last_session(state, ctx_key)
+
             sensitivity = self._get_sensitivity()
-            chosen_p = self._percentile_from_sensitivity(sensitivity)
-            p90 = float(stats.get("p90", 0.0) or 0.0)
-            p95 = float(stats.get("p95", 0.0) or 0.0)
-            p99 = float(stats.get("p99", 0.0) or 0.0)
-            count = int(stats.get("count", 0) or 0)
-            bucket = stats.get("bucket")
-            occ_class = stats.get("occ_class") or "home"
 
-            # Build effective threshold
-            baseline_ready = count >= 10
-            if baseline_ready and (p90 > 0.0 or p95 > 0.0 or p99 > 0.0):
-                base_threshold = self._interpolate_threshold(p90, p95, p99, chosen_p)
-            else:
-                base_threshold = 0.0
+            potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s = self._thresholds_from_sensitivity(sensitivity)
 
-            # Sparse-data fallback floor (minutes -> seconds)
-            fallback_min_minutes = 45.0 - (25.0 * (sensitivity / 100.0))  # 45 at 0, ~32.5 at 50, 20 at 100
-            fallback_floor_s = max(5.0 * 60.0, fallback_min_minutes * 60.0)
+            live_feature = self._live_feature(state, eff_elapsed)
+            best_id, best_profile, novelty = self._best_profile(live_feature)
+            expected_in_context = self._is_expected_in_context(best_id, ctx_key)
 
-            # Apply policy floors/adjustments
-            effective_threshold = base_threshold if base_threshold > 0 else fallback_floor_s
-            if occ_class == "vacation":
-                effective_threshold = max(effective_threshold, 45.0 * 60.0)
-            elif occ_class == "away":
-                effective_threshold = max(effective_threshold, 35.0 * 60.0)
-            elif occ_class == "night":
-                # tighten a bit at night but don’t go below 10 min to avoid over-aggression
-                effective_threshold = max(effective_threshold * 0.85, 10.0 * 60.0)
-
-            # Risk: scale by ratio to effective threshold
+            # Risk is mostly novelty + persistence. Context acts as a modifier.
             reasons = []
-            if eff_elapsed > 0 and effective_threshold > 0:
-                risk = eff_elapsed / effective_threshold
-                if baseline_ready:
-                    reasons.append("elapsed>p{:.1f}".format(chosen_p))
-                else:
-                    reasons.append("fallback_floor")
-            else:
-                risk = 0.0
+            risk = 0.0
+            novelty_norm = min(2.0, novelty) / 2.0
+            risk += novelty_norm * 1.2
+            reasons.append("novelty")
 
-            # Slightly increase risk if flow is very low but persistent (drip leaks)
-            if 0.0 < flow_now <= 0.3 and elapsed >= 10 * 60:
-                risk += 0.3
+            if best_profile is not None:
+                expected_duration = max(120.0, float(best_profile.get("duration", 120.0)) * 1.30)
+                duration_ratio = float(eff_elapsed) / expected_duration if expected_duration > 0 else 0.0
+                if duration_ratio > 0.60:
+                    risk += max(0.0, duration_ratio - 0.60)
+                    reasons.append("persistent_runtime")
+
+                profile_flow = max(0.2, float(best_profile.get("avg_flow", 0.2)))
+                flow_delta = abs(float(flow_now) - profile_flow) / profile_flow
+                risk += min(0.60, flow_delta * 0.30)
+            else:
+                # Unknown pattern: only become risky once it persists for a bit.
+                if eff_elapsed >= 180:
+                    risk += 0.50
+                    reasons.append("unknown_profile")
+
+            if not expected_in_context and best_id is not None:
+                risk += 0.35
+                reasons.append("context_mismatch")
+
+            if 0.0 < flow_now <= 0.30 and eff_elapsed >= 10 * 60:
+                risk += 0.25
                 reasons.append("low_flow_persistent")
 
-            is_on = risk >= 1.0
-            
-            # Prevent triggering during learning period
+            # Away/vacation should be more conservative for unexpected usage.
+            if ctx_key in ("away", "vacation") and not expected_in_context:
+                risk += 0.20
+                reasons.append("away_modifier")
+
+            # Stage transition candidates (hysteresis driven).
+            if flow_now > 0.0 and risk >= potential_th:
+                if self._potential_candidate_since is None:
+                    self._potential_candidate_since = now
+            else:
+                self._potential_candidate_since = None
+
+            if flow_now > 0.0 and risk >= confirmed_th:
+                if self._confirmed_candidate_since is None:
+                    self._confirmed_candidate_since = now
+            else:
+                self._confirmed_candidate_since = None
+
+            prev_stage = self._leak_stage
+            stage = prev_stage
+
+            # Prevent triggering during learning period.
             learning_period, learning_reason = self._is_learning_period()
-            if learning_period and is_on:
-                is_on = False
-                # Update trigger reason to reflect learning period suppression
-                trigger_reason = f"Learning period active: {learning_reason}"
-            prev = self._attr_is_on
-            # Suppress clearing while valve is off
-            if prev and not is_on and valve_off:
-                is_on = True
-            
-            # Capture synthetic flow at trigger time for notifications
-            if not prev and is_on:
-                self._synthetic_flow_at_trigger = float(state.get("synthetic_flow_gpm", 0.0) or 0.0)
-            
-            # Build human-readable trigger reason
-            if is_on:
-                if baseline_ready:
-                    trigger_reason = f"Water usage exceeded {chosen_p:.1f}th percentile baseline for current context"
+
+            if not active and flow_now <= 0.0:
+                if prev_stage == "confirmed" and valve_off:
+                    stage = "confirmed"
                 else:
-                    trigger_reason = f"Water usage exceeded fallback threshold (no baseline data)"
-                if "low_flow_persistent" in reasons:
-                    trigger_reason += " with persistent low flow pattern"
+                    stage = "normal"
+                self._potential_candidate_since = None
+                self._confirmed_candidate_since = None
+            elif learning_period:
+                if prev_stage == "confirmed" and valve_off:
+                    stage = "confirmed"
+                else:
+                    stage = "normal"
+            else:
+                potential_ready = bool(
+                    self._potential_candidate_since and (now - self._potential_candidate_since).total_seconds() >= potential_hold_s
+                )
+                confirmed_ready = bool(
+                    self._confirmed_candidate_since and (now - self._confirmed_candidate_since).total_seconds() >= confirmed_hold_s
+                )
+
+                if prev_stage == "confirmed":
+                    if valve_off:
+                        stage = "confirmed"
+                    elif risk < clear_th or flow_now <= 0.0:
+                        stage = "normal"
+                    else:
+                        stage = "confirmed"
+                elif confirmed_ready:
+                    stage = "confirmed"
+                elif potential_ready:
+                    stage = "potential"
+                elif risk < clear_th:
+                    stage = "normal"
+                else:
+                    stage = prev_stage
+
+            # Capture synthetic flow when entering confirmed stage.
+            if prev_stage != "confirmed" and stage == "confirmed":
+                self._synthetic_flow_at_trigger = float(state.get("synthetic_flow_gpm", 0.0) or 0.0)
+
+            if learning_period and stage == "normal":
+                trigger_reason = f"Learning period active: {learning_reason}"
+            elif stage == "confirmed":
+                trigger_reason = "Confirmed leak: persistent novel usage pattern"
+            elif stage == "potential":
+                trigger_reason = "Potential leak: atypical usage pattern detected"
             else:
                 trigger_reason = "No leak detected"
-            
-            # Build usage context string
-            usage_context = bucket or f"{hour}|{day_type}|{occ_class}"
-            
-            self._attr_is_on = is_on
+
+            self._leak_stage = stage
+            self._attr_is_on = stage in ("potential", "confirmed")
+
+            trigger_threshold = confirmed_th if stage == "confirmed" else potential_th
             self._attr_extra_state_attributes = {
                 # Universal attributes
                 "leak_type": "intelligent",
+                "leak_stage": stage,
                 "trigger_reason": trigger_reason,
                 "current_flow": round(flow_now, 2),
                 "elapsed_s": eff_elapsed,
-                "trigger_value": eff_elapsed,
-                "trigger_threshold": round(effective_threshold, 1),
-                "trigger_unit": "seconds",
+                "trigger_value": round(risk, 3),
+                "trigger_threshold": round(trigger_threshold, 3),
+                "trigger_unit": "risk",
                 "hot_pct": round(hot_pct, 1),
-                
+
                 # Intelligent-specific attributes
                 "current_usage": round(avg_flow, 2),
-                "baseline_usage": round(self._interpolate_threshold(p90, p95, p99, 50.0) / 60.0, 2) if baseline_ready else 0.0,  # Convert to GPM
-                "usage_context": usage_context,
-                "baseline_ready": baseline_ready,
-                "bucket_used": bucket,
+                "usage_context": ctx_key,
                 "sensitivity_setting": sensitivity,
-                "chosen_percentile": round(chosen_p, 1),
-                "risk": round(risk, 2),
+                "risk": round(risk, 3),
                 "reasons": reasons,
-                
+                "profile_id": best_id,
+                "profile_distance": round(novelty, 3),
+                "expected_in_context": expected_in_context,
+                "known_profiles": len(self._profiles),
+                "learned_sessions": self._learned_sessions,
+                "learned_profile_id": learned_profile_id,
+                "learned_profile_distance": round(learned_distance, 3) if learned_distance is not None else None,
+                "potential_hold_s": potential_hold_s,
+                "confirmed_hold_s": confirmed_hold_s,
+
                 # Auto-shutoff attributes
                 "auto_shutoff_on_trigger": auto,
                 "auto_shutoff_effective": effective,
                 "auto_shutoff_valve_entity": valve_entity,
                 "valve_off": valve_off,
                 "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
-                
+
                 # Learning period status
                 "learning_period_active": learning_period,
                 "learning_status": learning_reason,
             }
-            # Auto-shutoff action when transitioning OFF->ON
-            if not prev and self._attr_is_on and effective and valve_entity:
+
+            # Auto-shutoff only when entering confirmed stage.
+            if prev_stage != "confirmed" and stage == "confirmed" and effective and valve_entity:
                 self._async_call_valve_off(valve_entity)
-            if prev != self._attr_is_on:
-                self.async_write_ha_state()
-            else:
+
+            prev_on = prev_stage in ("potential", "confirmed")
+            # Write on state change or stage transition (rare) for observability.
+            if prev_on != self._attr_is_on or prev_stage != stage:
                 self.async_write_ha_state()
         except Exception:
             # Silent fail to avoid crashing dispatcher
@@ -598,6 +837,8 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         self._valve_entity_id = valve_entity_id or None
 
         self._unsub_state = None
+        # Track when each entity became unavailable for debouncing
+        self._unavailable_since: dict[str, datetime] = {}
         self._last_ok = {}
 
     @property
@@ -684,6 +925,26 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         return str(st.state).lower() in ("on", "off", "open", "closed", "true", "false", "0", "1")
 
     async def _evaluate(self, now: datetime) -> None:
+        # Update our debounce tracking: note when entities enter an unhealthy state
+        # and clear the timestamp once they recover. This allows the subsequent
+        # cutoff logic to only mark them as actually unavailable/unknown after
+        # 60 seconds have passed in that state.
+        for ent_id in [
+            self._flow_entity_id,
+            self._volume_entity_id,
+            self._hot_water_entity_id,
+            self._valve_entity_id,
+        ]:
+            if not ent_id:
+                continue
+            st = self.hass.states.get(ent_id)
+            if not st or st.state in (None, "unknown", "unavailable"):
+                # start timer if not already running
+                self._unavailable_since.setdefault(ent_id, now)
+            else:
+                # recovered, drop any prior timestamp
+                self._unavailable_since.pop(ent_id, None)
+
         unavailable: list[str] = []
         unknown: list[str] = []
         per_name_last_ok: dict[str, Optional[str]] = {}
@@ -697,8 +958,10 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
             friendly = (st.attributes.get("friendly_name") if st else None) or ent_id
             name_to_entity[friendly] = ent_id
             if ok is True:
+                # record time when this upstream was last seen good
                 self._last_ok[ent_id] = now
             if ok is False:
+                # add to list, but we'll debounce later using last_ok time
                 if not st or st.state == "unavailable":
                     unavailable.append(ent_id)
                 elif not st or st.state == "unknown":
@@ -715,12 +978,44 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         if self._valve_entity_id is not None:
             upd(self._valve_entity_id, valve_ok)
 
-        # Overall status remains based on core upstreams; valve presence does not gate availability
-        status = (
-            (self._flow_entity_id is None or self._is_flow_ok())
-            and (self._volume_entity_id is None or self._is_volume_ok())
-            and (self._hot_water_entity_id is None or hot_ok is True)
-        )
+        # Debounce transient outages: only report as unavailable if the entity has been
+        # in that state for 60+ seconds. Use our tracked unavailable_since time.
+        debounced_unavailable = []
+        for ent_id in unavailable:
+            since = self._unavailable_since.get(ent_id)
+            if since and (now - since).total_seconds() > 60:
+                debounced_unavailable.append(ent_id)
+        unavailable = debounced_unavailable
+
+        # Same for unknown
+        debounced_unknown = []
+        for ent_id in unknown:
+            since = self._unavailable_since.get(ent_id)
+            if since and (now - since).total_seconds() > 60:
+                debounced_unknown.append(ent_id)
+        unknown = debounced_unknown
+
+        # Overall status should reflect the *debounced* results rather than
+        # the instantaneous raw readings.  A sensor is considered healthy only
+        # if it has not been unavailable/unknown for more than the debounce
+        # period.  Valve availability is irrelevant to upstream health.
+        prev_on = self._attr_is_on
+        status = True
+
+        # helper to mark unhealthy if entity is in either debounced list
+        def mark_if(entity_id: Optional[str]) -> None:
+            nonlocal status
+            if entity_id and (entity_id in unavailable or entity_id in unknown):
+                status = False
+
+        mark_if(self._flow_entity_id)
+        mark_if(self._volume_entity_id)
+        if self._hot_water_entity_id:
+            # also require that the hot_water check itself returned True (ok)
+            if hot_ok is not True:
+                status = False
+            mark_if(self._hot_water_entity_id)
+
         self._attr_is_on = bool(status)
         self._attr_extra_state_attributes = {
             "unavailable_entities": unavailable,
@@ -728,7 +1023,9 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
             "name_to_entity": name_to_entity,
             **per_name_last_ok,
         }
-        self.async_write_ha_state()
+        # Only write if state changed
+        if prev_on != self._attr_is_on:
+            self.async_write_ha_state()
 
 
 class LowFlowLeakBinarySensor(LeakDetectorBase):
@@ -778,6 +1075,8 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
 
         self._unsub_state = None
         self._unsub_timer = None
+        # Track when each entity became unavailable for debouncing
+        self._unavailable_since: dict[str, datetime] = {}
         # Track detectors_flow provided by the tracker (includes synthetic when enabled)
         self._tracker_unsub = None
         self._last_detectors_flow = None
@@ -793,6 +1092,9 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
         self._cooldown_until = None
         # Track synthetic flow at trigger time for notifications
         self._synthetic_flow_at_trigger = 0.0
+
+        # Throttle database writes to reduce recorder load while maintaining UI responsiveness
+        self._last_write_time = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -1034,7 +1336,11 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
             "synthetic_flow_at_trigger": self._synthetic_flow_at_trigger,
         }
         self._last_update = now
-        self.async_write_ha_state()
+
+        # Only write to database when state changes to avoid excessive recorder activity
+        state_changed = prev_on != self._attr_is_on
+        if state_changed:
+            self.async_write_ha_state()
 
 
 class TankRefillLeakBinarySensor(LeakDetectorBase):
@@ -1094,6 +1400,9 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         # Track current synthetic flow for consistent capture
         self._current_synthetic_flow = 0.0
 
+        # Periodic timer handle for idle clearing
+        self._unsub_timer = None
+
     @property
     def device_info(self) -> DeviceInfo:
         ex = {**self._entry.data, **self._entry.options}
@@ -1145,6 +1454,12 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
             self.hass, tracker_signal(self._entry.entry_id), self._on_tracker_update
         )
         
+        # Schedule periodic evaluation so that idle-time clears and attribute
+        # refreshes happen even when no new sessions occur.
+        self._unsub_timer = async_track_time_interval(
+            self.hass, self._async_tick, timedelta(seconds=30)
+        )
+
         await self._resolve_and_subscribe()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -1154,6 +1469,9 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         if self._tracker_unsub:
             self._tracker_unsub()
             self._tracker_unsub = None
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
         await super().async_will_remove_from_hass()
 
     @callback
@@ -1203,6 +1521,10 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
     @callback
     async def _async_source_changed(self, event) -> None:
         await self._evaluate(datetime.now(timezone.utc))
+
+    async def _async_tick(self, now: datetime) -> None:
+        """Periodic callback to re-evaluate state based on elapsed time."""
+        await self._evaluate(now)
 
     async def _evaluate(self, now: datetime) -> None:
         # Update current synthetic flow for consistent capture
@@ -1327,7 +1649,16 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         # Build human-readable trigger reason
         if self._attr_is_on:
             latest_vol = self._history[-1][1] if self._history else 0
-            trigger_reason = f"{similar_count} similar refills ({latest_vol:.1f}gal ±{self._tol_pct}%) detected in {self._window_s//60}min window"
+            if similar_count == 0:
+                # This can happen when the history has been purged but the idle
+                # timeout has not yet fired; explain that we're simply waiting
+                # for the clear_idle timer rather than claiming a zero‑event
+                # pattern.
+                trigger_reason = (
+                    "Pattern previously detected; awaiting clear_idle timeout"
+                )
+            else:
+                trigger_reason = f"{similar_count} similar refills ({latest_vol:.1f}gal ±{self._tol_pct}%) detected in {self._window_s//60}min window"
         else:
             if similar_count > 0:
                 trigger_reason = f"Only {similar_count} of {self._repeat} required similar refills detected"
@@ -1388,7 +1719,6 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         # Auto-shutoff action when transitioning OFF->ON
         if transitioning_on and effective and valve_ent:
             self._async_call_valve_off(valve_ent)
+        # Only write to database when state changes
         if prev_on != self._attr_is_on:
-            self.async_write_ha_state()
-        else:
             self.async_write_ha_state()

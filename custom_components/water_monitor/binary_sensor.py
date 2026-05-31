@@ -26,6 +26,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -328,6 +329,8 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         self._profile_context_count: dict[str, dict[str, int]] = {}
         self._learned_sessions = 0
         self._last_finalized_sig: Optional[tuple[float, int, float]] = None
+        # Persistent profile store — survives HA restarts
+        self._profile_store: Optional[Store] = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -357,15 +360,70 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         except Exception:
             self._sensitivity_entity_id = None
 
-        # Bootstrap profiles from persisted engine history so learning survives restart.
+        # Initialize persistent profile store for this entry.
+        self._profile_store = Store(
+            self.hass, 1, f"{DOMAIN}_{self._entry.entry_id}_intel_profiles.json"
+        )
+
+        # Bootstrap profiles from engine session history (order-dependent clustering).
         self._bootstrap_profiles_from_engine()
+        bootstrap_count = self._learned_sessions
+
+        # Load persisted profiles from storage — overrides bootstrap when the stored
+        # state has more learned sessions, which means it has been refined by real
+        # post-restart live learning and is more accurate than a fresh re-cluster.
+        await self._load_profiles(bootstrap_count)
+
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        await self._save_profiles()
         await super().async_will_remove_from_hass()
+
+    async def _load_profiles(self, bootstrap_count: int) -> None:
+        """Load persisted profile model from storage, replacing bootstrap when better."""
+        if self._profile_store is None:
+            return
+        try:
+            data = await self._profile_store.async_load()
+            if not data or not isinstance(data, dict):
+                return
+            stored_count = int(data.get("learned_sessions", 0))
+            # Only use stored data if it has MORE learned sessions than bootstrap.
+            # Fewer sessions means the store is stale/corrupt — fall back to bootstrap.
+            if stored_count <= bootstrap_count:
+                return
+            self._profiles = {str(k): dict(v) for k, v in data.get("profiles", {}).items()}
+            self._profile_total_count = {str(k): int(v) for k, v in data.get("profile_total_count", {}).items()}
+            raw_ctx = data.get("profile_context_count", {})
+            self._profile_context_count = {
+                str(pid): {str(ctx): int(n) for ctx, n in counts.items()}
+                for pid, counts in raw_ctx.items()
+            }
+            self._learned_sessions = stored_count
+        except Exception as e:
+            _LOGGER.warning("Failed to load intelligent leak profiles: %s", e)
+
+    async def _save_profiles(self) -> None:
+        """Persist current profile model to storage."""
+        if self._profile_store is None or not self._profiles:
+            return
+        try:
+            data = {
+                "learned_sessions": self._learned_sessions,
+                "profiles": {k: dict(v) for k, v in self._profiles.items()},
+                "profile_total_count": dict(self._profile_total_count),
+                "profile_context_count": {
+                    pid: dict(counts)
+                    for pid, counts in self._profile_context_count.items()
+                },
+            }
+            await self._profile_store.async_save(data)
+        except Exception as e:
+            _LOGGER.warning("Failed to save intelligent leak profiles: %s", e)
 
     def _get_engine(self) -> Optional[WaterMonitorEngine]:
         try:
@@ -387,22 +445,21 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         return 50.0
 
     def _current_occ_class(self, now: datetime, eng: Optional[WaterMonitorEngine]) -> str:
-        """Resolve occupancy class and apply a simple night override."""
+        """Resolve occupancy class from engine/occupancy entity only.
+
+        Night classification was removed: it under-populated the 'home' profile
+        bucket and caused spurious context mismatches for early-morning use.
+        All non-away/vacation states collapse to 'home'.
+        """
         occ_class = "home"
         try:
             if eng:
                 stats = eng.get_context_stats_for_now()
-                occ_class = str(stats.get("occ_class") or "home")
+                raw = str(stats.get("occ_class") or "home")
+                if raw in ("away", "vacation"):
+                    occ_class = raw
         except Exception:
-            occ_class = "home"
-
-        # Keep explicit away/vacation, but classify 00:00-05:59 as night otherwise.
-        if occ_class not in ("away", "vacation"):
-            local_hour = now.astimezone().hour
-            if 0 <= local_hour <= 5:
-                occ_class = "night"
-            else:
-                occ_class = "home"
+            pass
         return occ_class
 
     def _context_key(self, occ_class: str) -> str:
@@ -482,8 +539,8 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         self._learned_sessions += 1
 
         best_id, _best_profile, best_dist = self._best_profile(feature)
-        merge_threshold = 1.10
-        max_profiles = 12
+        merge_threshold = 0.85
+        max_profiles = 8
 
         if best_id is None:
             best_id = self._next_profile_id()
@@ -526,29 +583,47 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
 
     def _is_learning_period(self) -> tuple[bool, str]:
         """
-        Check if detector is still in learning period and should not trigger.
+        Check if detector is still in learning period.
         Returns (is_learning, reason).
         """
         ex = {**self._entry.data, **self._entry.options}
-        
-        # Check if learning period protection is enabled
-        if not ex.get(CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING, True):
-            return False, "Learning period protection disabled"
-            
+
         min_learning_days = int(ex.get(CONF_INTEL_MINIMUM_LEARNING_DAYS, 14))
-        min_samples = max(10, min_learning_days * 2)
+        min_samples = max(20, min_learning_days * 3)
         if self._learned_sessions < min_samples:
             return True, f"Learning period: {self._learned_sessions} samples < {min_samples} minimum"
         return False, "Learning period complete"
 
+    def _suppress_during_learning_enabled(self) -> bool:
+        """Return whether learning-mode alert suppression is enabled."""
+        ex = {**self._entry.data, **self._entry.options}
+        return bool(ex.get(CONF_INTEL_SUPPRESS_NOTIFICATIONS_DURING_LEARNING, True))
+
+    def _profile_confidence(self, profile_id: Optional[str], ctx_key: str) -> float:
+        """Estimate confidence that a profile is normal in the current context."""
+        if not profile_id:
+            return 0.0
+
+        total = int(self._profile_total_count.get(profile_id, 0))
+        ctx_count = int(self._profile_context_count.get(profile_id, {}).get(ctx_key, 0))
+        if total <= 0:
+            return 0.0
+        if ctx_count < 5:
+            return min(0.5, ctx_count * 0.15)
+        return min(1.0, (ctx_count / float(total)) * 0.9 + 0.1)
+
     def _thresholds_from_sensitivity(self, sensitivity: float) -> tuple[float, float, float, int, int]:
         """Return (potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s)."""
         s = max(0.0, min(100.0, sensitivity))
-        potential_th = max(0.65, 1.20 - (0.005 * s))
+        # Raised potential threshold floor to reduce hair-trigger Potential alerts.
+        potential_th = max(0.90, 1.40 - (0.005 * s))
         confirmed_th = potential_th + 0.55
-        clear_th = potential_th * 0.55
-        potential_hold_s = max(20, int(80 - (0.5 * s)))
-        confirmed_hold_s = max(45, int(180 - (1.2 * s)))
+        # clear_th must be meaningfully below potential to prevent sticking.
+        clear_th = max(0.50, potential_th * 0.60)
+        # Potential hold must exceed typical short-session duration (handwash ~30s, toilet ~45s).
+        # Floor at 120s so brief bursts of high novelty cannot complete a Potential transition.
+        potential_hold_s = max(120, int(240 - (1.5 * s)))
+        confirmed_hold_s = max(300, int(600 - (3.0 * s)))
         return potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s
 
     def _is_expected_in_context(self, profile_id: Optional[str], ctx_key: str) -> bool:
@@ -639,6 +714,9 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
 
             # Keep learning model updated from newly finalized sessions.
             learned_profile_id, learned_distance = self._learn_from_last_session(state, ctx_key)
+            # Persist updated profiles after each new real session is learned.
+            if learned_profile_id is not None:
+                self.hass.async_create_task(self._save_profiles())
 
             sensitivity = self._get_sensitivity()
 
@@ -647,45 +725,73 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             live_feature = self._live_feature(state, eff_elapsed)
             best_id, best_profile, novelty = self._best_profile(live_feature)
             expected_in_context = self._is_expected_in_context(best_id, ctx_key)
+            profile_confidence = self._profile_confidence(best_id, ctx_key)
 
             # Risk is mostly novelty + persistence. Context acts as a modifier.
             reasons = []
             risk = 0.0
-            novelty_norm = min(2.0, novelty) / 2.0
-            risk += novelty_norm * 1.2
+            novelty_component = 0.0
+            duration_component = 0.0
+            context_component = 0.0
+            away_component = 0.0
+            low_flow_component = 0.0
+
+            novelty_norm = min(1.5, novelty) / 3.0
+            novelty_component = novelty_norm * 0.8
+            risk += novelty_component
             reasons.append("novelty")
 
             if best_profile is not None:
-                expected_duration = max(120.0, float(best_profile.get("duration", 120.0)) * 1.30)
+                expected_duration = max(120.0, float(best_profile.get("duration", 120.0)) * 1.15)
                 duration_ratio = float(eff_elapsed) / expected_duration if expected_duration > 0 else 0.0
-                if duration_ratio > 0.60:
-                    risk += max(0.0, duration_ratio - 0.60)
+                if duration_ratio > 0.75 and eff_elapsed >= 600:
+                    duration_component = max(0.0, (duration_ratio - 0.75) * 0.5)
+                    risk += duration_component
                     reasons.append("persistent_runtime")
 
+                # Use session avg_flow (smoothed over the session) instead of instantaneous
+                # flow_now. Instantaneous flow is too noisy during ramp-up/ramp-down and
+                # caused large flow_delta spikes on every short session.
                 profile_flow = max(0.2, float(best_profile.get("avg_flow", 0.2)))
-                flow_delta = abs(float(flow_now) - profile_flow) / profile_flow
-                risk += min(0.60, flow_delta * 0.30)
+                compare_flow = avg_flow if avg_flow > 0.0 else flow_now
+                flow_delta = abs(compare_flow - profile_flow) / profile_flow
+                risk += min(0.40, flow_delta * 0.20)
             else:
                 # Unknown pattern: only become risky once it persists for a bit.
                 if eff_elapsed >= 180:
                     risk += 0.50
                     reasons.append("unknown_profile")
 
-            if not expected_in_context and best_id is not None:
-                risk += 0.35
-                reasons.append("context_mismatch")
+            if best_id is not None and profile_confidence >= 0.60:
+                risk = max(0.0, risk - min(0.20, profile_confidence * 0.20))
+                reasons.append("high_confidence_profile")
+
+            if best_id is not None:
+                total_profile_samples = int(self._profile_total_count.get(best_id, 0))
+                ctx_occurrence = int(self._profile_context_count.get(best_id, {}).get(ctx_key, 0))
+                if total_profile_samples >= 10 and (ctx_occurrence / max(1, total_profile_samples)) < 0.08:
+                    context_component = 0.15
+                    risk += context_component
+                    reasons.append("context_mismatch")
 
             if 0.0 < flow_now <= 0.30 and eff_elapsed >= 10 * 60:
-                risk += 0.25
+                low_flow_component = 0.20
+                risk += low_flow_component
                 reasons.append("low_flow_persistent")
 
             # Away/vacation should be more conservative for unexpected usage.
-            if ctx_key in ("away", "vacation") and not expected_in_context:
-                risk += 0.20
+            if ctx_key in ("away", "vacation") and not expected_in_context and profile_confidence < 0.60:
+                away_component = 0.10
+                risk += away_component
                 reasons.append("away_modifier")
 
+            risk = min(risk, 2.5)
+
             # Stage transition candidates (hysteresis driven).
-            if flow_now > 0.0 and risk >= potential_th:
+            # Require minimum elapsed before Potential candidate can start — prevents
+            # short-burst sessions (handwash, toilet) from ever accumulating hold time.
+            min_elapsed_for_potential = 120
+            if flow_now > 0.0 and risk >= potential_th and eff_elapsed >= min_elapsed_for_potential:
                 if self._potential_candidate_since is None:
                     self._potential_candidate_since = now
             else:
@@ -700,8 +806,9 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             prev_stage = self._leak_stage
             stage = prev_stage
 
-            # Prevent triggering during learning period.
+            # Learning state and suppression policy.
             learning_period, learning_reason = self._is_learning_period()
+            suppress_during_learning = self._suppress_during_learning_enabled()
 
             if not active and flow_now <= 0.0:
                 if prev_stage == "confirmed" and valve_off:
@@ -710,11 +817,11 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                     stage = "normal"
                 self._potential_candidate_since = None
                 self._confirmed_candidate_since = None
-            elif learning_period:
-                if prev_stage == "confirmed" and valve_off:
-                    stage = "confirmed"
-                else:
-                    stage = "normal"
+            elif learning_period and suppress_during_learning:
+                # Fresh installs and learning periods must be non-alerting when suppression is enabled.
+                stage = "normal"
+                self._potential_candidate_since = None
+                self._confirmed_candidate_since = None
             else:
                 potential_ready = bool(
                     self._potential_candidate_since and (now - self._potential_candidate_since).total_seconds() >= potential_hold_s
@@ -777,12 +884,20 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 "profile_id": best_id,
                 "profile_distance": round(novelty, 3),
                 "expected_in_context": expected_in_context,
+                "profile_confidence": round(profile_confidence, 3),
                 "known_profiles": len(self._profiles),
                 "learned_sessions": self._learned_sessions,
                 "learned_profile_id": learned_profile_id,
                 "learned_profile_distance": round(learned_distance, 3) if learned_distance is not None else None,
                 "potential_hold_s": potential_hold_s,
                 "confirmed_hold_s": confirmed_hold_s,
+                "novelty_component": round(novelty_component, 3),
+                "duration_component": round(duration_component, 3),
+                "context_component": round(context_component, 3),
+                "away_component": round(away_component, 3),
+                "low_flow_component": round(low_flow_component, 3),
+                "potential_candidate_s": int((now - self._potential_candidate_since).total_seconds()) if self._potential_candidate_since else 0,
+                "confirmed_candidate_s": int((now - self._confirmed_candidate_since).total_seconds()) if self._confirmed_candidate_since else 0,
 
                 # Auto-shutoff attributes
                 "auto_shutoff_on_trigger": auto,
@@ -794,10 +909,17 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 # Learning period status
                 "learning_period_active": learning_period,
                 "learning_status": learning_reason,
+                "learning_suppression_enabled": suppress_during_learning,
             }
 
             # Auto-shutoff only when entering confirmed stage.
-            if prev_stage != "confirmed" and stage == "confirmed" and effective and valve_entity:
+            if (
+                prev_stage != "confirmed"
+                and stage == "confirmed"
+                and effective
+                and valve_entity
+                and not (learning_period and suppress_during_learning)
+            ):
                 self._async_call_valve_off(valve_entity)
 
             prev_on = prev_stage in ("potential", "confirmed")

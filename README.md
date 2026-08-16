@@ -1,5 +1,7 @@
 ![Version](https://img.shields.io/github/v/release/markaggar/Water-Monitor?style=for-the-badge)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-orange?logo=buy-me-a-coffee)](https://buymeacoffee.com/markaggar)
 # Water Monitor
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=Water-Monitor&category=integration)
@@ -219,6 +221,17 @@ The intelligent leak detection analysis engine automatically runs daily at **3:1
   - State: on/off (device_class: connectivity)
   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps
 
+## Want a sensor that tracks/logs any of the attributes?
+It's possible you might want to track the state of an individual attribute to get history, show on a dashboard etc.
+
+Fortunately, it's easy to do this yourself with a template helper you create under Settings/Devices & Services/Helpers.  Add the following in the State section of the Helper configuration page.
+
+{{state_attr('sensor.sensorname','attribute_name')}}
+
+e.g.
+
+{{state_attr('sensor.water_monitor_current_session_volume','current_session_duration')}}
+  
 ## How it works
 
 ### Session detection

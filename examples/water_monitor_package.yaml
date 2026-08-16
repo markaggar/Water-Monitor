@@ -81,7 +81,6 @@ input_datetime:
 template:
   - sensor:
       - unique_id: water_monitor_any_leak_active
-        default_entity_id: sensor.water_monitor_any_leak_active
         name: Water Monitor Any Leak Active
         state: >
           {% set leaks = states.binary_sensor | selectattr('state','eq','on')

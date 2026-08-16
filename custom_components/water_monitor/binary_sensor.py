@@ -253,6 +253,7 @@ class EngineStatusBinarySensor(BinarySensorEntity):
         """Process engine events to reflect status and anomaly flag."""
         try:
             prev_on = self._attr_is_on
+            prev_attrs = dict(self._attr_extra_state_attributes)
             typ = payload.get("type")
             if typ == "ingest":
                 rec = payload.get("record", {})
@@ -275,8 +276,9 @@ class EngineStatusBinarySensor(BinarySensorEntity):
                     "baseline_std": summary.get("baseline_std"),
                     "threshold_3sigma": summary.get("threshold_3sigma"),
                 })
-            # Only write if state changed
-            if prev_on != self._attr_is_on:
+            # Write if the on/off state changed OR attributes changed (e.g. an
+            # "ingest" payload only updates diagnostics, never _attr_is_on).
+            if prev_on != self._attr_is_on or self._attr_extra_state_attributes != prev_attrs:
                 self.async_write_ha_state()
         except Exception:
             # Defensive: don’t throw from callback
@@ -451,7 +453,11 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
 
     async def _save_profiles(self) -> None:
         """Persist current profile model to storage."""
-        if self._profile_store is None or not self._profiles:
+        # Note: deliberately do NOT skip saving when self._profiles is empty -
+        # async_reset_learning() needs to be able to persist a cleared model
+        # (e.g. when engine history is empty), otherwise a stale stored model
+        # would simply reload on the next restart, making "reset" ineffective.
+        if self._profile_store is None:
             return
         try:
             data = {
@@ -1090,7 +1096,15 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 if prev_stage == "confirmed":
                     if valve_off:
                         stage = "confirmed"
-                    elif risk < clear_th or (flow_now <= 0.0 and sustained_idle):
+                    elif flow_now <= 0.0:
+                        # Zero flow: this is the "leak may have stopped" path.
+                        # Gate ALL clearing (including a risk drop, which often
+                        # accompanies session end) behind the sustained-idle
+                        # debounce so a single zero-flow tick can't clear the
+                        # alarm and have it instantly re-confirm on the next
+                        # tick (flapping).
+                        stage = "normal" if sustained_idle else "confirmed"
+                    elif risk < clear_th:
                         stage = "normal"
                     else:
                         stage = "confirmed"
@@ -1387,6 +1401,7 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
         # if it has not been unavailable/unknown for more than the debounce
         # period.  Valve availability is irrelevant to upstream health.
         prev_on = self._attr_is_on
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
         status = True
 
         # helper to mark unhealthy if entity is in either debounced list
@@ -1410,8 +1425,10 @@ class UpstreamHealthBinarySensor(BinarySensorEntity):
             "name_to_entity": name_to_entity,
             **per_name_last_ok,
         }
-        # Only write if state changed
-        if prev_on != self._attr_is_on:
+        # Write if the on/off state changed OR the diagnostic attributes
+        # changed (e.g. per-entity last-ok timestamps updating while overall
+        # health stays the same).
+        if prev_on != self._attr_is_on or self._attr_extra_state_attributes != prev_attrs:
             self.async_write_ha_state()
 
 
@@ -1651,6 +1668,7 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
         # Trigger condition
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
         prev_on = self._attr_is_on
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
         if not self._attr_is_on and can_trigger and self._seeded and self._count_progress >= self._min_s:
             self._attr_is_on = True
             # Capture synthetic flow at trigger time for notifications
@@ -1724,9 +1742,13 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
         }
         self._last_update = now
 
-        # Only write to database when state changes to avoid excessive recorder activity
+        # Write to the recorder when the on/off state changes, or when the
+        # diagnostic attributes change (e.g. elapsed_s/phase progressing while
+        # still counting toward a trigger) so listeners see live progress
+        # instead of only the alarm transitions.
         state_changed = prev_on != self._attr_is_on
-        if state_changed:
+        attrs_changed = self._attr_extra_state_attributes != prev_attrs
+        if state_changed or attrs_changed:
             self.async_write_ha_state()
 
 
@@ -2001,6 +2023,7 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
                     })
 
         prev_on = self._attr_is_on
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
         # Read valve context
         valve_ent, valve_off, auto, effective = self._get_valve_context(CONF_TANK_LEAK_AUTO_SHUTOFF)
         can_trigger = not self._cooldown_until or now >= self._cooldown_until
@@ -2106,6 +2129,8 @@ class TankRefillLeakBinarySensor(LeakDetectorBase):
         # Auto-shutoff action when transitioning OFF->ON
         if transitioning_on and effective and valve_ent:
             self._async_call_valve_off(valve_ent)
-        # Only write to database when state changes
-        if prev_on != self._attr_is_on:
+        # Write to the recorder when the on/off state changes, or when the
+        # diagnostic attributes change (e.g. contributing_events/elapsed_s
+        # progressing while still counting toward a trigger).
+        if prev_on != self._attr_is_on or self._attr_extra_state_attributes != prev_attrs:
             self.async_write_ha_state()

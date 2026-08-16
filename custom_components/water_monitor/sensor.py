@@ -449,6 +449,16 @@ class WaterSessionSensor(SensorEntity):
     async def _async_update_from_sensors(self) -> None:
         """Update the sensor from tracked entities."""
         try:
+            # Snapshot pre-update state so we can detect any change (value,
+            # unit, or attributes) before writing HA state below. Capturing
+            # these here (before this method mutates them) is required -
+            # comparing self._attr_native_value to itself after it has
+            # already been reassigned would always be equal and would
+            # silently suppress all state writes.
+            prev_native_value = self._attr_native_value
+            prev_unit = self._attr_native_unit_of_measurement
+            prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
+
             # Get current sensor states
             flow_state = self.hass.states.get(self._flow_sensor)
             volume_state = self.hass.states.get(self._volume_sensor) if (self._volume_sensor and not self._calc_volume_from_flow) else None
@@ -719,8 +729,11 @@ class WaterSessionSensor(SensorEntity):
 
             # Apply adaptive cadence based on state and write state
             self._apply_cadence(state_data)
-            prev_value = self._attr_native_value
-            self.async_write_ha_state() if prev_value != self._attr_native_value else None
+            value_changed = prev_native_value != self._attr_native_value
+            unit_changed = prev_unit != self._attr_native_unit_of_measurement
+            attrs_changed = self._attr_extra_state_attributes != prev_attrs
+            if value_changed or unit_changed or attrs_changed:
+                self.async_write_ha_state()
             self._prev_session_active = current_active
 
         except (ValueError, TypeError) as e:
@@ -793,6 +806,12 @@ class CurrentSessionVolumeSensor(SensorEntity):
 
     async def update_from_tracker(self, state_data: dict):
         """Update this sensor when main sensor updates."""
+        # Snapshot pre-update state so unit/attribute-only changes (common at
+        # startup, when current_volume stays 0) aren't silently dropped by a
+        # write gate that only checks the native value.
+        prev_unit = self._attr_native_unit_of_measurement
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
+
         # Sync the unit from the main sensor (derived from source volume sensor)
         unit = state_data.get("volume_unit")
         if unit:
@@ -854,8 +873,11 @@ class CurrentSessionVolumeSensor(SensorEntity):
         self._attr_native_value = round(float(current_volume), 2)
         self._attr_available = True
 
-        # Only write state if hass is available and value changed
-        if self.hass is not None and prev_value != self._attr_native_value:
+        # Write state if value, unit, or attributes changed
+        value_changed = prev_value != self._attr_native_value
+        unit_changed = prev_unit != self._attr_native_unit_of_measurement
+        attrs_changed = self._attr_extra_state_attributes != prev_attrs
+        if self.hass is not None and (value_changed or unit_changed or attrs_changed):
             self.async_write_ha_state()
 
 
@@ -930,6 +952,7 @@ class LastSessionDurationSensor(_BaseDependentSensor):
     async def update_from_tracker(self, state_data: dict):
         # Only mark available True if upstream is available
         self._attr_available = self._upstream_available()
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
         val = int(state_data.get("last_session_duration", 0) or 0)
         prev_value = self._attr_native_value
         self._attr_native_value = val
@@ -939,7 +962,8 @@ class LastSessionDurationSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None and prev_value != self._attr_native_value:
+        attrs_changed = self._attr_extra_state_attributes != prev_attrs
+        if self.hass is not None and (prev_value != self._attr_native_value or attrs_changed):
             self.async_write_ha_state()
 
 
@@ -1034,8 +1058,10 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
                 return (volume_val / dur_s) * 60.0, f"{v_unit}/min"
             return (volume_val / dur_s) * 60.0, None
 
-        value, unit = compute_avg(volume, duration_s, flow_unit, vol_unit)
         prev_value = self._attr_native_value
+        prev_unit = self._attr_native_unit_of_measurement
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
+        value, unit = compute_avg(volume, duration_s, flow_unit, vol_unit)
         self._attr_native_value = round(float(value or 0.0), 2)
         # Guard against a momentary unresolved unit blanking a previously-known
         # good value — only update when compute_avg actually resolved one.
@@ -1049,7 +1075,10 @@ class LastSessionAverageFlowSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None and prev_value != self._attr_native_value:
+        value_changed = prev_value != self._attr_native_value
+        unit_changed = prev_unit != self._attr_native_unit_of_measurement
+        attrs_changed = self._attr_extra_state_attributes != prev_attrs
+        if self.hass is not None and (value_changed or unit_changed or attrs_changed):
             self.async_write_ha_state()
 
 
@@ -1066,6 +1095,7 @@ class LastSessionHotWaterPctSensor(_BaseDependentSensor):
 
     async def update_from_tracker(self, state_data: dict):
         self._attr_available = self._upstream_available()
+        prev_attrs = dict(self._attr_extra_state_attributes) if self._attr_extra_state_attributes else {}
         val = float(state_data.get("last_session_hot_water_pct", 0.0) or 0.0)
         # Tracker rounds to 0.1; keep one decimal
         prev_value = self._attr_native_value
@@ -1076,5 +1106,6 @@ class LastSessionHotWaterPctSensor(_BaseDependentSensor):
             "sampling_active_seconds": state_data.get("sampling_active_seconds"),
             "sampling_gap_seconds": state_data.get("sampling_gap_seconds"),
         }
-        if self.hass is not None and prev_value != self._attr_native_value:
+        attrs_changed = self._attr_extra_state_attributes != prev_attrs
+        if self.hass is not None and (prev_value != self._attr_native_value or attrs_changed):
             self.async_write_ha_state()

@@ -73,7 +73,7 @@ from .const import (
     CONF_INTEL_AUTO_SHUTOFF,
 )
 from .const import engine_signal, tracker_signal
-from .engine import WaterMonitorEngine
+from .engine import WaterMonitorEngine, percentile_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -298,6 +298,13 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
+    # Minimum sustained zero-flow duration (seconds) required before a flow-based
+    # instant-clear ("flow just stopped") is honored while in potential/confirmed
+    # stage. Without this, a single momentary zero reading from a pulsing/
+    # intermittent leak (e.g. a cycling toilet flapper) can clear the alarm, which
+    # then immediately re-triggers on the next tick — causing rapid on/off flapping.
+    _CLEAR_IDLE_S = 30.0
+
     def __init__(self, entry: ConfigEntry, name: str) -> None:
         super().__init__(entry, name)
         self._attr_unique_id = f"{entry.entry_id}_intelligent_leak"
@@ -306,11 +313,23 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         self._attr_extra_state_attributes = {}
         self._unsub = None
         self._sensitivity_entity_id = None
+        # Cross-detector corroboration: entity ids for the other leak detectors,
+        # resolved in async_added_to_hass(). None when that detector is disabled
+        # or not found — corroboration is a boost, never a hard dependency.
+        self._low_flow_entity_id: Optional[str] = None
+        self._tank_refill_entity_id: Optional[str] = None
+        # Sticky per-session flag: True once another detector confirms a leak
+        # during the current session. Reset when the session ends.
+        self._session_leak_corroborated = False
+        self._corroboration_source: Optional[str] = None
 
         # Runtime session tracking
         self._last_eval_ts: Optional[datetime] = None
         self._flow_active_start = None
         self._last_flow_now = 0.0
+        # Accumulated wall-clock seconds of continuous zero flow — used to debounce
+        # flow-based instant-clear transitions (see _CLEAR_IDLE_S above).
+        self._idle_zero_s = 0.0
 
         # Trigger metadata
         self._synthetic_flow_at_trigger = 0.0
@@ -349,16 +368,25 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         self._unsub = async_dispatcher_connect(self.hass, sig, self._on_tracker_update)
         self._attr_available = True
 
-        # Resolve the Leak alert sensitivity number entity_id by unique_id
+        # Resolve the Leak alert sensitivity number entity_id by unique_id, and
+        # (for cross-detector corroboration) the Low-Flow/Tank-Refill leak entity
+        # ids. Any of these may legitimately be absent if that feature is disabled.
         try:
             reg = er.async_get(self.hass)
             target_uid = f"{self._entry.entry_id}_leak_sensitivity"
+            low_flow_uid = f"{self._entry.entry_id}_low_flow_leak"
+            tank_refill_uid = f"{self._entry.entry_id}_tank_refill_leak"
             for ent in er.async_entries_for_config_entry(reg, self._entry.entry_id):
                 if ent.unique_id == target_uid and ent.domain == "number":
                     self._sensitivity_entity_id = ent.entity_id
-                    break
+                elif ent.unique_id == low_flow_uid and ent.domain == "binary_sensor":
+                    self._low_flow_entity_id = ent.entity_id
+                elif ent.unique_id == tank_refill_uid and ent.domain == "binary_sensor":
+                    self._tank_refill_entity_id = ent.entity_id
         except Exception:
             self._sensitivity_entity_id = None
+            self._low_flow_entity_id = None
+            self._tank_refill_entity_id = None
 
         # Initialize persistent profile store for this entry.
         self._profile_store = Store(
@@ -374,12 +402,26 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         # post-restart live learning and is more accurate than a fresh re-cluster.
         await self._load_profiles(bootstrap_count)
 
+        # Publish a reference so the reset_intelligent_leak_learning service can find us.
+        try:
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            if isinstance(data, dict):
+                data["intel_leak_entity"] = self
+        except Exception:
+            pass
+
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         if self._unsub:
             self._unsub()
             self._unsub = None
+        try:
+            data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+            if isinstance(data, dict) and data.get("intel_leak_entity") is self:
+                data.pop("intel_leak_entity", None)
+        except Exception:
+            pass
         await self._save_profiles()
         await super().async_will_remove_from_hass()
 
@@ -424,6 +466,22 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             await self._profile_store.async_save(data)
         except Exception as e:
             _LOGGER.warning("Failed to save intelligent leak profiles: %s", e)
+
+    async def async_reset_learning(self) -> None:
+        """Clear learned profiles and immediately rebuild from engine session history.
+
+        Exposed for the `water_monitor.reset_intelligent_leak_learning` service so
+        stale/degraded profiles (e.g. lacking spread data from before a model change)
+        can be rebuilt without waiting weeks for organic relearning.
+        """
+        self._profiles = {}
+        self._profile_total_count = {}
+        self._profile_context_count = {}
+        self._learned_sessions = 0
+        self._last_finalized_sig = None
+        self._bootstrap_profiles_from_engine()
+        await self._save_profiles()
+        self.async_write_ha_state()
 
     def _get_engine(self) -> Optional[WaterMonitorEngine]:
         try:
@@ -479,15 +537,68 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             "hot_pct": max(0.0, min(100.0, float(hot_pct))),
         }
 
+    def _profile_scale(self, profile: dict, key: str, mean_value: float, floor: float) -> float:
+        """Return a normalization scale for distance/ceiling calcs.
+
+        Uses the profile's learned spread (half the p10-p90 range) once enough raw
+        samples exist; otherwise falls back to a fraction of the mean (today's
+        simpler heuristic). This keeps naturally high-variance recurring events
+        (irrigation cycles, showers) from looking artificially "novel" just because
+        a given run is longer/bigger than average.
+        """
+        samples = profile.get(f"{key}_samples") or []
+        if len(samples) >= 5:
+            p90 = percentile_of(samples, 90)
+            p10 = percentile_of(samples, 10)
+            spread = (p90 - p10) / 2.0
+            return max(spread, floor)
+        return max(mean_value, floor)
+
+    def _profile_percentile(self, profile: dict, key: str, pct: float, fallback: float) -> float:
+        """Return a learned percentile ceiling for a profile metric.
+
+        Falls back to the supplied value when the profile doesn't yet have enough
+        raw samples (< 5) to compute a meaningful percentile.
+        """
+        samples = profile.get(f"{key}_samples") or []
+        if len(samples) >= 5:
+            return percentile_of(samples, pct)
+        return fallback
+
+    def _profile_time_window(self, profile: dict) -> Optional[tuple[float, float]]:
+        """Return a learned (start, end) minute-of-day window for this profile.
+
+        Purely data-driven from observed session start times (p10-p90, padded by
+        30 minutes) — no hardcoded clock times. Returns None when fewer than 5
+        start-time samples have been recorded yet, in which case time-of-day is
+        treated as a neutral factor (no bonus, no penalty).
+        """
+        samples = profile.get("start_minute_samples") or []
+        if len(samples) < 5:
+            return None
+        lo = max(0.0, percentile_of(samples, 10) - 30.0)
+        hi = min(1439.0, percentile_of(samples, 90) + 30.0)
+        return (lo, hi)
+
+    def _time_of_day_minutes(self, dt_local: datetime) -> int:
+        return dt_local.hour * 60 + dt_local.minute
+
     def _profile_distance(self, feature: dict[str, float], profile: dict) -> float:
-        """Weighted normalized distance to a profile centroid."""
+        """Weighted normalized distance to a profile centroid.
+
+        Duration/volume are normalized by the profile's learned spread when enough
+        samples exist (see `_profile_scale`), instead of always using a bare mean.
+        """
         p_dur = max(60.0, float(profile.get("duration", 60.0)))
         p_flow = max(0.2, float(profile.get("avg_flow", 0.2)))
         p_vol = max(0.5, float(profile.get("volume", 0.5)))
 
-        d_dur = (float(feature["duration"]) - p_dur) / p_dur
+        dur_scale = self._profile_scale(profile, "duration", p_dur, 60.0)
+        vol_scale = self._profile_scale(profile, "volume", p_vol, 0.5)
+
+        d_dur = (float(feature["duration"]) - p_dur) / dur_scale
         d_flow = (float(feature["avg_flow"]) - p_flow) / p_flow
-        d_vol = (float(feature["volume"]) - p_vol) / p_vol
+        d_vol = (float(feature["volume"]) - p_vol) / vol_scale
         d_hot = (float(feature["hot_pct"]) - float(profile.get("hot_pct", 0.0))) / 100.0
 
         return sqrt((1.2 * d_dur * d_dur) + (1.0 * d_flow * d_flow) + (1.0 * d_vol * d_vol) + (0.5 * d_hot * d_hot))
@@ -508,7 +619,7 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         idx = len(self._profiles) + 1
         return f"t{idx:02d}"
 
-    def _update_profile(self, profile_id: str, feature: dict[str, float]) -> None:
+    def _update_profile(self, profile_id: str, feature: dict[str, float], start_minute: Optional[int] = None) -> None:
         profile = self._profiles.get(profile_id)
         if profile is None:
             profile = {
@@ -517,6 +628,9 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 "avg_flow": float(feature["avg_flow"]),
                 "hot_pct": float(feature["hot_pct"]),
                 "count": 0,
+                "duration_samples": [],
+                "volume_samples": [],
+                "start_minute_samples": [],
             }
             self._profiles[profile_id] = profile
 
@@ -529,12 +643,31 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             cur = float(feature.get(key, 0.0))
             profile[key] = prev + (cur - prev) * alpha
 
+        # Maintain bounded raw-sample history for percentile/spread-based scoring.
+        # Cap at 60 samples per metric (roughly matches the long-horizon learning
+        # window called out in docs/INTELLIGENT_LEAK_DESIGN.md).
+        dur_samples = profile.setdefault("duration_samples", [])
+        dur_samples.append(float(feature["duration"]))
+        if len(dur_samples) > 60:
+            del dur_samples[: len(dur_samples) - 60]
+
+        vol_samples = profile.setdefault("volume_samples", [])
+        vol_samples.append(float(feature["volume"]))
+        if len(vol_samples) > 60:
+            del vol_samples[: len(vol_samples) - 60]
+
+        if start_minute is not None:
+            start_samples = profile.setdefault("start_minute_samples", [])
+            start_samples.append(int(start_minute))
+            if len(start_samples) > 60:
+                del start_samples[: len(start_samples) - 60]
+
     def _record_profile_context(self, profile_id: str, ctx_key: str) -> None:
         self._profile_total_count[profile_id] = int(self._profile_total_count.get(profile_id, 0)) + 1
         counts = self._profile_context_count.setdefault(profile_id, {})
         counts[ctx_key] = int(counts.get(ctx_key, 0)) + 1
 
-    def _learn_session(self, feature: dict[str, float], ctx_key: str) -> tuple[str, float]:
+    def _learn_session(self, feature: dict[str, float], ctx_key: str, start_minute: Optional[int] = None) -> tuple[str, float]:
         """Assign a session to a learned profile and update centroids."""
         self._learned_sessions += 1
 
@@ -544,17 +677,17 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
 
         if best_id is None:
             best_id = self._next_profile_id()
-            self._update_profile(best_id, feature)
+            self._update_profile(best_id, feature, start_minute)
             self._record_profile_context(best_id, ctx_key)
             return best_id, 0.0
 
         if best_dist > merge_threshold and len(self._profiles) < max_profiles:
             new_id = self._next_profile_id()
-            self._update_profile(new_id, feature)
+            self._update_profile(new_id, feature, start_minute)
             self._record_profile_context(new_id, ctx_key)
             return new_id, best_dist
 
-        self._update_profile(best_id, feature)
+        self._update_profile(best_id, feature, start_minute)
         self._record_profile_context(best_id, ctx_key)
         return best_id, best_dist
 
@@ -577,9 +710,16 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 continue
             if dur <= 0 or vol <= 0:
                 continue
+            start_minute = None
+            try:
+                ended_dt = datetime.fromisoformat(rec.get("ended_at"))
+                start_dt = (ended_dt - timedelta(seconds=dur)).astimezone()
+                start_minute = start_dt.hour * 60 + start_dt.minute
+            except Exception:
+                start_minute = None
             feature = self._feature_from_values(vol, dur, avg, hot)
             ctx_key = self._context_key(str(rec.get("occ_class") or "home"))
-            self._learn_session(feature, ctx_key)
+            self._learn_session(feature, ctx_key, start_minute)
 
     def _is_learning_period(self) -> tuple[bool, str]:
         """
@@ -612,6 +752,24 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             return min(0.5, ctx_count * 0.15)
         return min(1.0, (ctx_count / float(total)) * 0.9 + 0.1)
 
+    def _check_corroboration(self) -> tuple[bool, Optional[str]]:
+        """Check whether another leak detector currently reports a confirmed leak.
+
+        This is a fast corroboration signal, not a hard dependency: if either
+        detector is disabled/absent, this simply returns (False, None) and
+        Intelligent Leak continues to rely entirely on its own scoring.
+        """
+        for entity_id, source in (
+            (self._low_flow_entity_id, "low_flow"),
+            (self._tank_refill_entity_id, "tank_refill"),
+        ):
+            if not entity_id:
+                continue
+            st = self.hass.states.get(entity_id)
+            if st is not None and st.state == "on":
+                return True, source
+        return False, None
+
     def _thresholds_from_sensitivity(self, sensitivity: float) -> tuple[float, float, float, int, int]:
         """Return (potential_th, confirmed_th, clear_th, potential_hold_s, confirmed_hold_s)."""
         s = max(0.0, min(100.0, sensitivity))
@@ -635,7 +793,7 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         ctx = int(self._profile_context_count.get(profile_id, {}).get(ctx_key, 0))
         return (ctx / float(total)) >= 0.12
 
-    def _learn_from_last_session(self, state: dict, ctx_key: str) -> tuple[Optional[str], Optional[float]]:
+    def _learn_from_last_session(self, state: dict, now: datetime, ctx_key: str) -> tuple[Optional[str], Optional[float]]:
         """Consume finalized session payload (if new) and update profile model."""
         try:
             vol = float(state.get("last_session_volume", 0.0) or 0.0)
@@ -660,8 +818,20 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         if dur > 0 and synth > 0:
             avg = max(0.0, avg - (synth / (dur / 60.0)))
 
+        start_minute = None
+        try:
+            start_dt = (now - timedelta(seconds=dur)).astimezone()
+            start_minute = start_dt.hour * 60 + start_dt.minute
+        except Exception:
+            start_minute = None
+
         feature = self._feature_from_values(vol_eff, dur, avg, hot)
-        profile_id, distance = self._learn_session(feature, ctx_key)
+        if self._session_leak_corroborated:
+            # This session was confirmed as a leak by another detector — don't let
+            # it get folded into "normal" profile centroids, or a recurring leak
+            # would progressively look more and more like expected usage.
+            return None, None
+        profile_id, distance = self._learn_session(feature, ctx_key, start_minute)
         return profile_id, distance
 
     def _live_feature(self, state: dict, elapsed_s: int) -> dict[str, float]:
@@ -689,7 +859,18 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
         try:
             valve_entity, valve_off, auto, effective = self._get_valve_context(CONF_INTEL_AUTO_SHUTOFF)
             now = datetime.now(timezone.utc)
+            prev_eval_ts = self._last_eval_ts
             self._last_eval_ts = now
+
+            # Cross-detector corroboration: if Low-Flow or Tank-Refill independently
+            # confirm a leak during this session, latch it (sticky for the rest of
+            # the session) as a strong signal — our own novelty/profile scoring can
+            # be slow (or unable) to flag a recurring-but-genuine leak on its own.
+            if not self._session_leak_corroborated:
+                corroborated_now, corroboration_source = self._check_corroboration()
+                if corroborated_now:
+                    self._session_leak_corroborated = True
+                    self._corroboration_source = corroboration_source
 
             # Pull live session metrics
             active = bool(state.get("current_session_active", False))
@@ -697,6 +878,16 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             avg_flow = float(state.get("current_session_average_flow", 0.0) or 0.0)
             hot_pct = float(state.get("current_session_hot_water_pct", 0.0) or 0.0)
             flow_now = float(state.get("flow_sensor_value", 0.0) or 0.0)
+
+            # Accumulate continuous zero-flow duration (debounce for flow-based
+            # instant-clear checks below). Clamp dt to avoid huge jumps across HA
+            # restarts or long dispatcher gaps.
+            dt = (now - prev_eval_ts).total_seconds() if prev_eval_ts else 0.0
+            dt = max(0.0, min(dt, 300.0))
+            if flow_now > 0.0:
+                self._idle_zero_s = 0.0
+            else:
+                self._idle_zero_s += dt
 
             # Maintain independent wall-clock elapsed while flow > 0.
             if flow_now > 0.0:
@@ -713,7 +904,7 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             ctx_key = self._context_key(occ_class)
 
             # Keep learning model updated from newly finalized sessions.
-            learned_profile_id, learned_distance = self._learn_from_last_session(state, ctx_key)
+            learned_profile_id, learned_distance = self._learn_from_last_session(state, now, ctx_key)
             # Persist updated profiles after each new real session is learned.
             if learned_profile_id is not None:
                 self.hass.async_create_task(self._save_profiles())
@@ -732,22 +923,66 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             risk = 0.0
             novelty_component = 0.0
             duration_component = 0.0
+            volume_component = 0.0
             context_component = 0.0
             away_component = 0.0
             low_flow_component = 0.0
+            corroboration_component = 0.0
+            time_window_discount = 0.0
+            time_window_match: Optional[bool] = None
 
             novelty_norm = min(1.5, novelty) / 3.0
             novelty_component = novelty_norm * 0.8
+            if best_id is not None and profile_confidence >= 0.60:
+                # High-confidence profile match discounts novelty specifically (this
+                # pattern closely resembles known routine usage) — but must NOT
+                # discount duration/volume/low-flow overrun signals, which indicate
+                # genuine persistence beyond what any known routine would produce.
+                novelty_component = max(0.0, novelty_component - min(0.20, profile_confidence * 0.20))
+                reasons.append("high_confidence_profile")
             risk += novelty_component
             reasons.append("novelty")
 
             if best_profile is not None:
-                expected_duration = max(120.0, float(best_profile.get("duration", 120.0)) * 1.15)
-                duration_ratio = float(eff_elapsed) / expected_duration if expected_duration > 0 else 0.0
-                if duration_ratio > 0.75 and eff_elapsed >= 600:
-                    duration_component = max(0.0, (duration_ratio - 0.75) * 0.5)
+                # Learned percentile ceilings (p95 of this profile's own history) instead
+                # of a fixed mean-based tolerance — recurring events with natural
+                # variability (irrigation cycle length, shower duration/volume)
+                # shouldn't be flagged just for running longer/bigger than average.
+                # Falls back to the old mean-based heuristic until a profile has
+                # accumulated enough samples (see `_profile_percentile`).
+                fallback_duration_ceiling = max(120.0, float(best_profile.get("duration", 120.0)) * 1.15)
+                duration_ceiling = self._profile_percentile(best_profile, "duration", 95, fallback_duration_ceiling)
+                if eff_elapsed > duration_ceiling and eff_elapsed >= 600:
+                    duration_ratio = float(eff_elapsed) / max(1.0, duration_ceiling)
+                    duration_component = min(0.5, max(0.0, (duration_ratio - 1.0) * 0.5))
                     risk += duration_component
                     reasons.append("persistent_runtime")
+
+                fallback_volume_ceiling = max(0.5, float(best_profile.get("volume", 0.5)) * 1.3)
+                volume_ceiling = self._profile_percentile(best_profile, "volume", 95, fallback_volume_ceiling)
+                live_volume = float(live_feature.get("volume", 0.0))
+                if live_volume > volume_ceiling:
+                    volume_ratio = live_volume / max(0.1, volume_ceiling)
+                    volume_component = min(0.3, max(0.0, (volume_ratio - 1.0) * 0.4))
+                    risk += volume_component
+                    reasons.append("volume_overrun")
+
+                # Learned time-of-day window (p10-p90 of observed start times, ±30min
+                # padding). Purely data-driven — no hardcoded clock times. If the
+                # current session's start falls inside this profile's normal window,
+                # discount the overrun components: a scheduled irrigation cycle that
+                # always runs in the same early-morning window naturally gets a tight
+                # window, while anytime showers naturally get a wide/permissive one.
+                time_window = self._profile_time_window(best_profile)
+                if time_window is not None:
+                    lo, hi = time_window
+                    session_start = now.astimezone() - timedelta(seconds=eff_elapsed)
+                    start_minute = self._time_of_day_minutes(session_start)
+                    time_window_match = lo <= start_minute <= hi
+                    if time_window_match and (duration_component > 0.0 or volume_component > 0.0):
+                        time_window_discount = min(duration_component + volume_component, 0.35)
+                        risk -= time_window_discount
+                        reasons.append("expected_time_window")
 
                 # Use session avg_flow (smoothed over the session) instead of instantaneous
                 # flow_now. Instantaneous flow is too noisy during ramp-up/ramp-down and
@@ -762,10 +997,6 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                     risk += 0.50
                     reasons.append("unknown_profile")
 
-            if best_id is not None and profile_confidence >= 0.60:
-                risk = max(0.0, risk - min(0.20, profile_confidence * 0.20))
-                reasons.append("high_confidence_profile")
-
             if best_id is not None:
                 total_profile_samples = int(self._profile_total_count.get(best_id, 0))
                 ctx_occurrence = int(self._profile_context_count.get(best_id, {}).get(ctx_key, 0))
@@ -775,7 +1006,11 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                     reasons.append("context_mismatch")
 
             if 0.0 < flow_now <= 0.30 and eff_elapsed >= 10 * 60:
-                low_flow_component = 0.20
+                # Scale with time sustained past the 10-minute floor instead of a
+                # flat bump, so a genuinely long-running drip accumulates
+                # meaningfully more risk on its own, independent of corroboration.
+                over_s = eff_elapsed - (10 * 60)
+                low_flow_component = min(0.8, 0.20 + (over_s / 600.0) * 0.20)
                 risk += low_flow_component
                 reasons.append("low_flow_persistent")
 
@@ -784,6 +1019,14 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 away_component = 0.10
                 risk += away_component
                 reasons.append("away_modifier")
+
+            if self._session_leak_corroborated:
+                # Another detector already confirmed this session is a leak — add a
+                # strong, dominant contribution so Intelligent Leak reaches
+                # Confirmed quickly rather than waiting on its own scoring/timers.
+                corroboration_component = 1.8
+                risk += corroboration_component
+                reasons.append("corroborated_by_other_detector")
 
             risk = min(risk, 2.5)
 
@@ -810,13 +1053,22 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
             learning_period, learning_reason = self._is_learning_period()
             suppress_during_learning = self._suppress_during_learning_enabled()
 
-            if not active and flow_now <= 0.0:
+            # A flow-based "it just stopped" clear is only honored once zero flow
+            # has been sustained for _CLEAR_IDLE_S seconds. A single momentary zero
+            # reading (pulsing/intermittent leak, e.g. a cycling toilet flapper)
+            # must not clear an already-alarmed stage, or it will instantly
+            # re-trigger on the next tick and flap on/off.
+            sustained_idle = self._idle_zero_s >= self._CLEAR_IDLE_S
+
+            if not active and flow_now <= 0.0 and (prev_stage == "normal" or sustained_idle):
                 if prev_stage == "confirmed" and valve_off:
                     stage = "confirmed"
                 else:
                     stage = "normal"
                 self._potential_candidate_since = None
                 self._confirmed_candidate_since = None
+                self._session_leak_corroborated = False
+                self._corroboration_source = None
             elif learning_period and suppress_during_learning:
                 # Fresh installs and learning periods must be non-alerting when suppression is enabled.
                 stage = "normal"
@@ -829,11 +1081,16 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 confirmed_ready = bool(
                     self._confirmed_candidate_since and (now - self._confirmed_candidate_since).total_seconds() >= confirmed_hold_s
                 )
+                if self._session_leak_corroborated:
+                    # Another detector already enforced its own persistence
+                    # requirement (seed/min-duration) — skip our own hold timers.
+                    potential_ready = True
+                    confirmed_ready = True
 
                 if prev_stage == "confirmed":
                     if valve_off:
                         stage = "confirmed"
-                    elif risk < clear_th or flow_now <= 0.0:
+                    elif risk < clear_th or (flow_now <= 0.0 and sustained_idle):
                         stage = "normal"
                     else:
                         stage = "confirmed"
@@ -874,6 +1131,8 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 "trigger_threshold": round(trigger_threshold, 3),
                 "trigger_unit": "risk",
                 "hot_pct": round(hot_pct, 1),
+                "idle_zero_s": round(self._idle_zero_s, 1),
+                "clear_idle_s": self._CLEAR_IDLE_S,
 
                 # Intelligent-specific attributes
                 "current_usage": round(avg_flow, 2),
@@ -893,9 +1152,15 @@ class IntelligentLeakBinarySensor(LeakDetectorBase):
                 "confirmed_hold_s": confirmed_hold_s,
                 "novelty_component": round(novelty_component, 3),
                 "duration_component": round(duration_component, 3),
+                "volume_component": round(volume_component, 3),
                 "context_component": round(context_component, 3),
                 "away_component": round(away_component, 3),
                 "low_flow_component": round(low_flow_component, 3),
+                "time_window_match": time_window_match,
+                "time_window_discount": round(time_window_discount, 3),
+                "corroboration_component": round(corroboration_component, 3),
+                "corroborated_leak": self._session_leak_corroborated,
+                "corroboration_source": self._corroboration_source,
                 "potential_candidate_s": int((now - self._potential_candidate_since).total_seconds()) if self._potential_candidate_since else 0,
                 "confirmed_candidate_s": int((now - self._confirmed_candidate_since).total_seconds()) if self._confirmed_candidate_since else 0,
 

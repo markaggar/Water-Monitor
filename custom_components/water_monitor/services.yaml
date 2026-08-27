@@ -45,3 +45,15 @@ simulate_history:
       default: true
       selector:
         boolean:
+
+reset_intelligent_leak_learning:
+  name: Reset intelligent leak learning
+  description: Clear learned Intelligent Leak profiles and immediately rebuild them from existing session history, instead of waiting for organic relearning.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional. If provided, resets only this config entry's Intelligent Leak sensor; otherwise resets all loaded entries.
+      required: false
+      example: "abc123def456"
+      selector:
+        text:

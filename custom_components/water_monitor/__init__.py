@@ -68,6 +68,27 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     pass
 
         hass.services.async_register(DOMAIN, "simulate_history", _handle_simulate)
+
+        async def _handle_reset_intelligent_leak_learning(call: ServiceCall) -> None:
+            target_id: str | None = call.data.get("entry_id")
+            targets = []
+            if target_id:
+                data = hass.data.get(DOMAIN, {}).get(target_id)
+                if isinstance(data, dict) and data.get("intel_leak_entity"):
+                    targets.append(data["intel_leak_entity"])
+            else:
+                for eid, data in hass.data.get(DOMAIN, {}).items():
+                    if isinstance(data, dict) and data.get("intel_leak_entity"):
+                        targets.append(data["intel_leak_entity"])
+            for entity in targets:
+                try:
+                    await entity.async_reset_learning()
+                except Exception as e:  # pragma: no cover - defensive
+                    _LOGGER.warning("Failed to reset intelligent leak learning: %s", e)
+
+        hass.services.async_register(
+            DOMAIN, "reset_intelligent_leak_learning", _handle_reset_intelligent_leak_learning
+        )
         domain_data["services_registered"] = True
     return True
 
@@ -369,6 +390,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             hass.services.async_remove(DOMAIN, "analyze_yesterday")
             hass.services.async_remove(DOMAIN, "simulate_history")
+            hass.services.async_remove(DOMAIN, "reset_intelligent_leak_learning")
         except Exception:  # pragma: no cover - defensive
             pass
         domain_data.pop("services_registered", None)

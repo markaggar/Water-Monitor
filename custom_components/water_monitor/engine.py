@@ -31,6 +31,26 @@ def _day_key(dt: datetime) -> str:
     return dt.astimezone().strftime("%Y-%m-%d")
 
 
+def percentile_of(data: List[float] | List[int], pct: float) -> float:
+    """Return the linear-interpolated percentile of a numeric sequence.
+
+    Shared utility so other consumers (e.g. binary_sensor.py's intelligent leak
+    profile model) don't need to duplicate this logic.
+    """
+    if not data:
+        return 0.0
+    xs = sorted(float(x) for x in data)
+    if len(xs) == 1:
+        return xs[0]
+    # Clamp percentile to [0, 100]
+    p = max(0.0, min(100.0, pct)) / 100.0
+    idx = p * (len(xs) - 1)
+    lo = int(idx)
+    hi = min(lo + 1, len(xs) - 1)
+    frac = idx - lo
+    return xs[lo] * (1.0 - frac) + xs[hi] * frac
+
+
 @dataclass
 class SessionRecord:
     ended_at: str  # ISO8601
@@ -331,18 +351,7 @@ class WaterMonitorEngine:
         slot["last_updated"] = datetime.now(timezone.utc).isoformat()
 
     def _percentile(self, data: List[float] | List[int], pct: float) -> float:
-        if not data:
-            return 0.0
-        xs = sorted(float(x) for x in data)
-        if len(xs) == 1:
-            return xs[0]
-        # Clamp percentile to [0, 100]
-        p = max(0.0, min(100.0, pct)) / 100.0
-        idx = p * (len(xs) - 1)
-        lo = int(idx)
-        hi = min(lo + 1, len(xs) - 1)
-        frac = idx - lo
-        return xs[lo] * (1.0 - frac) + xs[hi] * frac
+        return percentile_of(data, pct)
 
     def get_simple_bucket_stats(self, hour: int, day_type: str) -> Dict[str, Any]:
         """Return simple stats for a bucket and fallbacks if needed.
@@ -515,6 +524,12 @@ class WaterMonitorEngine:
             "day_type": day_type,
         })
         return stats
+
+    def get_recent_sessions(self, limit: int = 300) -> List[Dict[str, Any]]:
+        """Return recent recorded sessions as plain dicts for read-only consumers."""
+        lim = max(1, int(limit or 300))
+        recent = self._state.sessions[-lim:]
+        return [rec.__dict__.copy() for rec in recent]
 
     # -------------------------
     # Simulation tooling (to accelerate baseline creation)

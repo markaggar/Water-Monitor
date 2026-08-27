@@ -9,6 +9,8 @@
 
 A Home Assistant custom integration for water usage monitoring that provides session tracking, gap handling, hot water analytics, and optional leak detection with water shut-off valve support. Only a Flow sensor is required; a Volume sensor, Hot water sensor and shut-off valve control is optional. If you do supply a Volume sensor, Water Monitor will use it directly (ideal if you want volumes to align with the Energy dashboard). Supports multiple instances (works with electricity too!) and full reconfiguration of sensor names and threshold values via the UI.
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 **NEW** - Water Monitor Leak Detector Automations package with actionable notifications to alert you of any problems that the leak detectors find. Get the package from [here](examples/water_monitor_package.yaml) or download the zip file from the root directory of the Water Monitor repo and copy /examples/water_monitor_package.yaml into your packages folder. Instructions for install are in the .yaml file.
 
 <img width="449" height="666" alt="image" src="https://github.com/user-attachments/assets/a8cdcfeb-f03d-4e9c-9527-e7230c58ddd8" />
@@ -128,7 +130,13 @@ If “Enable Intelligent Leak Detection” is checked, you’ll be presented wit
 
 Notes
 - CSV fields accept multiple labels separated by commas, e.g. "On Vacation, Returning from Vacation".
-- Learning mode is intended for future automation-assisted tuning; you can toggle it via Options or automations.
+- Intelligent Leak uses learned session-shape profiles (volume, duration, average flow, hot water %) rather than relying mainly on time-of-day baselines.
+- Detection stages are:
+  - Potential leak: early warning when the current session looks novel/risky
+  - Confirmed leak: sustained/high-confidence anomaly (auto-shutoff actions trigger at this stage)
+- Context (home/night/away/vacation) is used as a modifier to risk and expectedness, not the primary baseline.
+- Internal profile IDs (for example t01, t02) are intentionally non-human labels; they represent learned behavior clusters.
+- Learning mode can be toggled via Options or automations.
 
 ### Synthetic Flow Options
 If Enable Synthetic Flow (testing) is enabled, you'll be presented with another page:
@@ -140,8 +148,8 @@ If Enable Synthetic Flow (testing) is enabled, you'll be presented with another 
 The intelligent leak detection analysis engine automatically runs daily at **3:10 AM local time** to:
 
 - Analyze yesterday's water usage patterns
-- Update baseline statistics for anomaly detection
-- Build context-aware usage profiles
+- Update long-horizon summary statistics
+- Keep historical session data available for profile bootstrapping and diagnostics
 
 **Note:** Analysis only runs when "Enable Intelligent Leak Detection" is enabled. You can also manually trigger analysis using the `water_monitor.analyze_yesterday` service.
 
@@ -198,6 +206,17 @@ The intelligent leak detection analysis engine automatically runs daily at **3:1
     - last_event: ISO timestamp of last considered refill
     - min_refill_duration_s, max_refill_duration_s
     - contributing_events: array of {ts, volume, duration_s}
+- Intelligent leak (binary_sensor, optional, experimental)
+  - State: on/off (device_class: problem)
+  - Uses learned profile similarity and persistence to evaluate live sessions
+  - Stages: normal, potential, confirmed
+  - Attributes (highlights):
+    - leak_stage: normal | potential | confirmed
+    - risk, trigger_threshold, trigger_reason
+    - profile_id, profile_distance, expected_in_context
+    - known_profiles, learned_sessions
+    - potential_hold_s, confirmed_hold_s
+    - learning_period_active, learning_status
 - Upstream sensors health (binary_sensor)
   - State: on/off (device_class: connectivity)
   - Attributes: unavailable_entities, unknown_entities, name_to_entity, and per-entity last OK timestamps

@@ -1746,9 +1746,24 @@ class LowFlowLeakBinarySensor(LeakDetectorBase):
         # diagnostic attributes change (e.g. elapsed_s/phase progressing while
         # still counting toward a trigger) so listeners see live progress
         # instead of only the alarm transitions.
+        #
+        # When idle and clear, avoid writing every tick just because
+        # idle_zero_s/high_flow_s increment; that can generate excessive
+        # recorder churn. Keep those idle updates to at most once per minute.
         state_changed = prev_on != self._attr_is_on
         attrs_changed = self._attr_extra_state_attributes != prev_attrs
-        if state_changed or attrs_changed:
+        should_write = state_changed
+        if attrs_changed and not should_write:
+            if self._attr_is_on or phase in ("seeding", "counting"):
+                should_write = True
+            else:
+                if (
+                    self._last_write_time is None
+                    or (now - self._last_write_time).total_seconds() >= 60
+                ):
+                    should_write = True
+        if should_write:
+            self._last_write_time = now
             self.async_write_ha_state()
 
 

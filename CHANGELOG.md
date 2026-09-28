@@ -6,6 +6,9 @@ The format is based on Keep a Changelog and this project follows semantic versio
 
 ## [Unreleased]
 
+### Fixed
+- Reduced low-flow leak binary sensor recorder churn while idle by throttling idle-only diagnostic attribute writes (such as `idle_zero_s`) to at most once per minute when the sensor is off and not actively seeding/counting.
+
 ## [1.4.0] - 2026-08-16
 
 ### Added

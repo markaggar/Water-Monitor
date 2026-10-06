@@ -49,11 +49,11 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 ## Devices
 Here is a list of devices that the community has tested or should work with the integration (submit an issue to add your experience with a device)
 
-| Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Flow/Volume Sensor Latency | Plumbing Required | Link |
-|--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------------------|-------------------|------|
-| Droplet | Hydrific Water | Y (Flow Sensor) | Y | N | N | Y (MQTT) | <3s | N | [link](https://shop.hydrificwater.com/pages/buy-droplet) |
-| Flowsmart All-in-one | Yolink | Y (Valve) | N | Y | Y | N | minutes | Y | [link](https://shop.yosmart.com/products/ys5008-20) |
-| Titan Water Valve Actuator | Zooz | Y (Valve) | N | N | Y| Y (Zwave) | NA | N | [link](https://amzn.to/4mPD3x8) |
+| Device | Manufacturer | Works with Integration | Flow Sensor | Volume Sensor | Shutoff Valve | Local API | Flow/Volume Sensor Latency | Plumbing Required |
+|--------|--------------|------------------------|-------------|---------------|---------------|-----------|----------------------------|-------------------|
+| [Droplet](https://www.hydrificwater.com/MARK87359) | Hydrific Water | Y (Flow Sensor) | Y | N | N | Y (MQTT/HA Integration) | <3s | N |
+| [Flowsmart All-in-one](https://shop.yosmart.com/products/ys5008-20) | Yolink | Y (Valve) | N | Y | Y | N | minutes | Y |
+| [Titan Water Valve Actuator](https://amzn.to/4mPD3x8) | Zooz | Y (Valve) | N | N | Y| Y (Zwave) | NA | N | 
 
 ## DISCLAIMER ##
 A water flow monitor does not replace the need for leak/moisture sensors placed in strategic locations around your home. If a leak is due to a failure of an appliance (e.g., leaky hose under the sink that only occurs when the faucet is turned on or a sudden failure of a rusty water heater, washing machine, toilet o-ring), water infiltration from outside, or a blocked sewer pipe (speaking from experience), a water flow sensor (and this integration) will not detect those events. It is best suited for wasted water scenarios (e.g. faucet left on, toilet flapper not sealing) or burst pipes (e.g. outside hoses, pipes behind walls) where you cannot practically place a leak/moisture sensor (again, experienced all of those!). It might be able to detect very slow leaks due to loose fittings or hairline cracks, but you should test your flow sensor has sufficient sensitivity to detect flow for those types of events.
